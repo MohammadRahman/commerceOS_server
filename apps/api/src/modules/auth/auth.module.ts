@@ -10,11 +10,16 @@ import { UserEntity } from '../tenancy/entities/user.entity';
 import { UserSessionEntity } from '../tenancy/entities/user-session.entity';
 import { JwtStrategy } from './strategy/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { OrganizationEntity } from '../tenancy/entities/organization.entity';
 
 @Module({
   imports: [
     ConfigModule,
-    DatabaseModule.forFeature([UserEntity, UserSessionEntity]),
+    DatabaseModule.forFeature([
+      UserEntity,
+      UserSessionEntity,
+      OrganizationEntity,
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -23,6 +28,6 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtAuthGuard],
-  exports: [JwtAuthGuard],
+  exports: [JwtAuthGuard, AuthService],
 })
 export class AuthModule {}

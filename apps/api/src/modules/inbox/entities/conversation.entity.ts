@@ -1,4 +1,4 @@
-import { Column, Entity, Index, ManyToOne, OneToMany, Unique } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, Unique } from 'typeorm';
 import { AbstractEntity } from '@app/common/database/base.entity';
 import { ChannelEntity } from './channel.entity';
 import { MessageEntity } from './message.entity';
@@ -17,6 +17,7 @@ export class ConversationEntity extends AbstractEntity<ConversationEntity> {
   @ManyToOne(() => ChannelEntity, (ch) => ch.conversations, {
     onDelete: 'CASCADE',
   })
+  @JoinColumn({ name: 'channel_id' })
   channel: ChannelEntity;
 
   // Meta thread id

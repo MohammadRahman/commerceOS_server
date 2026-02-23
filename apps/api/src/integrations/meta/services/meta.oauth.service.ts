@@ -27,8 +27,14 @@ type OAuthStatePayload = {
 };
 
 type CallbackResult =
-  | { ok: true; connected: number; pages: number; instagram: number }
-  | { ok: false; reason: string };
+  | {
+      ok: true;
+      connected: number;
+      pages: number;
+      instagram: number;
+      returnTo?: string;
+    }
+  | { ok: false; reason: string; returnTo?: string };
 
 @Injectable()
 export class MetaOAuthService {
@@ -48,10 +54,6 @@ export class MetaOAuthService {
       'pages_show_list',
       'pages_manage_metadata',
       'pages_messaging',
-      'pages_read_engagement',
-      'business_management',
-      'instagram_manage_messages',
-      'instagram_basic',
     ].join(',');
 
     const state = this.signState({
@@ -76,13 +78,14 @@ export class MetaOAuthService {
     const state = this.verifyState(params.state);
     if (!state) return { ok: false, reason: 'Invalid state' };
 
+    const STATE_TTL_MS = 60 * 60 * 1000;
     // Optional short TTL on state (10 minutes)
-    if (Date.now() - state.iat > 10 * 60 * 1000) {
+    if (Date.now() - state.iat > STATE_TTL_MS) {
       return { ok: false, reason: 'State expired' };
     }
 
     const orgId = state.orgId;
-
+    const returnTo = state.returnTo ?? '/settings';
     try {
       // 1) Exchange code -> short-lived user token
       const shortUserToken = await this.exchangeCodeForToken(params.code);
@@ -131,26 +134,33 @@ export class MetaOAuthService {
         }
       }
 
-      return { ok: true, connected, pages, instagram };
+      return { ok: true, connected, pages, instagram, returnTo };
     } catch (e: any) {
       const msg =
         e?.response?.data?.error?.message ??
         e?.message ??
         'OAuth callback failed';
-      return { ok: false, reason: msg };
+      return { ok: false, reason: msg, returnTo };
     }
   }
 
-  redirectToFrontend(res: Response, result: CallbackResult) {
+  redirectToFrontend(
+    res: Response,
+    result: CallbackResult,
+    returnTo = '/settings',
+  ) {
     const base = this.config.getOrThrow<string>('FRONTEND_URL');
-    const url = new URL(base + '/integrations/meta/callback');
+    const rt = returnTo.startsWith('/') ? returnTo : `/${returnTo}`;
+    const url = new URL(base + rt);
 
     if (result.ok) {
+      url.searchParams.set('integration', 'meta');
       url.searchParams.set('ok', '1');
       url.searchParams.set('connected', String(result.connected));
       url.searchParams.set('pages', String(result.pages));
       url.searchParams.set('instagram', String(result.instagram));
     } else {
+      url.searchParams.set('integration', 'meta');
       url.searchParams.set('ok', '0');
       url.searchParams.set('reason', result.reason);
     }

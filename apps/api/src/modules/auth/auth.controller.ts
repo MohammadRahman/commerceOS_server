@@ -5,11 +5,16 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { Ctx } from '@app/common/utils/request-context';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RegisterDto } from './dto/register.dto';
 
 @Controller('v1/auth')
 export class AuthController {
   constructor(private auth: AuthService) {}
 
+  @Post('register')
+  register(@Body() dto: RegisterDto) {
+    return this.auth.register(dto);
+  }
   @Post('login')
   async login(@Body() dto: LoginDto, @Req() req: express.Request) {
     return this.auth.login({

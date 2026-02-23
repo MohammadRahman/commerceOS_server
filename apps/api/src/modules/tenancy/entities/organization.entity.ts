@@ -13,4 +13,20 @@ export class OrganizationEntity extends AbstractEntity<OrganizationEntity> {
 
   @OneToMany(() => UserEntity, (u) => u.org)
   users: UserEntity[];
+
+  @Column({ type: 'varchar', length: 50, default: 'Asia/Dhaka' })
+  timezone: string;
+
+  @Column({ type: 'varchar', length: 10, default: 'BDT' })
+  currency: string;
+
+  @Column({ type: 'varchar', length: 300, default: '' })
+  pickupAddress: string;
+
+  @Column({ type: 'boolean', default: false })
+  isOnboarded: boolean;
+
+  @Index()
+  @Column({ type: 'char', length: 2, name: 'country_code', default: 'BD' })
+  countryCode: string;
 }

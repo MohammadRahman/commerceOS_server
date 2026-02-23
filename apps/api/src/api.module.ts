@@ -9,6 +9,9 @@ import { MetaModule } from './integrations/meta/meta.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
+import { ProvidersModule } from './modules/providers/providers.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { WhatsappModule } from './integrations/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -27,6 +30,9 @@ import { ShipmentsModule } from './modules/shipments/shipments.module';
     OutboxModule,
     PaymentsModule,
     ShipmentsModule,
+    OrganizationsModule,
+    ProvidersModule,
+    WhatsappModule,
   ],
 })
 export class AppModule {}

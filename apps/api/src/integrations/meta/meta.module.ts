@@ -9,11 +9,16 @@ import { MetaOAuthController } from './controllers/meta.oauth.controller';
 import { MetaOAuthService } from './services/meta.oauth.service';
 import { MetaService } from './services/meta.service';
 import { Module } from '@nestjs/common';
+import { InboxController } from './controllers/inbox.controller';
+import { InboxService } from './services/inbox.service';
+import { InboxGateway } from './gateway/inbox.gateway';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
     ConfigModule,
     HttpModule,
+    JwtModule,
     IdempotencyModule,
     DatabaseModule.forFeature([
       ChannelEntity,
@@ -21,7 +26,8 @@ import { Module } from '@nestjs/common';
       MessageEntity,
     ]),
   ],
-  controllers: [MetaController, MetaOAuthController],
-  providers: [MetaService, MetaOAuthService],
+  controllers: [MetaController, MetaOAuthController, InboxController],
+  providers: [MetaService, MetaOAuthService, InboxService, InboxGateway],
+  exports: [InboxGateway, InboxService],
 })
 export class MetaModule {}

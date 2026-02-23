@@ -11,6 +11,7 @@ import {
   MessageEntity,
   MessageDirection,
 } from 'apps/api/src/modules/inbox/entities/message.entity';
+import { InboxGateway } from '../gateway/inbox.gateway';
 
 type MetaMessagingEvent = {
   sender?: { id: string };
@@ -27,6 +28,7 @@ type MetaMessagingEvent = {
 export class MetaService {
   constructor(
     private idem: IdempotencyService,
+    private gateway: InboxGateway,
     @InjectRepository(ChannelEntity)
     private channels: Repository<ChannelEntity>,
     @InjectRepository(ConversationEntity)
@@ -54,86 +56,94 @@ export class MetaService {
   private async ingestMessagingEvent(evt: MetaMessagingEvent, rawBody: any) {
     const senderId = evt?.sender?.id;
     const recipientId = evt?.recipient?.id;
-
     if (!senderId || !recipientId) return;
 
     const isEcho = Boolean(evt?.message?.is_echo);
-
-    // Identify user + page
     const userId = isEcho ? recipientId : senderId;
     const pageId = isEcho ? senderId : recipientId;
 
-    // Match channel using your actual schema
-    const channel = await this.channels.findOne({
+    // ✅ Find ALL active channels matching this pageId — not just one
+    const channels = await this.channels.find({
       where: [
-        { pageId, status: 'ACTIVE' },
-        { externalAccountId: pageId, status: 'ACTIVE' },
-      ] as any,
+        { pageId, status: 'ACTIVE' as any },
+        { externalAccountId: pageId, status: 'ACTIVE' as any },
+      ],
     });
 
     console.log(
       '[meta] lookup pageId=',
       pageId,
       'found=',
-      Boolean(channel),
-      'statusWanted=ACTIVE',
+      channels.length,
+      'channels',
     );
 
-    if (!channel) return;
+    if (!channels.length) return;
 
-    const orgId = channel.orgId;
-
-    // Idempotency
     const mid = evt?.message?.mid;
     const ts = evt?.timestamp ?? Date.now();
 
-    const idemKey = mid
-      ? `mid:${mid}`
-      : `ts:${ts}:s:${senderId}:r:${recipientId}`;
+    // ✅ Process for each org that has this page connected
+    for (const channel of channels) {
+      const orgId = channel.orgId;
 
-    const claimed = await this.idem.claim(orgId, 'webhook:meta', idemKey);
-    if (!claimed) return;
+      const idemKey = mid
+        ? `mid:${mid}:org:${orgId}` // ← scope idempotency per org too
+        : `ts:${ts}:s:${senderId}:r:${recipientId}:org:${orgId}`;
 
-    // Upsert conversation
-    const externalThreadId = userId;
+      const claimed = await this.idem.claim(orgId, 'webhook:meta', idemKey);
+      if (!claimed) continue;
 
-    let convo = await this.conversations.findOne({
-      where: { channelId: channel.id, externalThreadId },
-    });
-    console.log('[meta] pageId=', pageId, 'userId=', userId);
-    console.log('[meta] channel=', channel?.id, channel?.status);
-
-    if (!convo) {
-      convo = this.conversations.create({
-        orgId,
-        channelId: channel.id,
-        externalThreadId,
-        externalUserId: userId,
-        lastMessageAt: new Date(ts),
+      let convo = await this.conversations.findOne({
+        where: { channelId: channel.id, externalThreadId: userId },
       });
-      convo = await this.conversations.save(convo);
-    } else {
-      await this.conversations.update(
-        { id: convo.id, orgId },
-        { lastMessageAt: new Date(ts) },
-      );
+
+      if (!convo) {
+        convo = this.conversations.create({
+          orgId,
+          channelId: channel.id,
+          externalThreadId: userId,
+          externalUserId: userId,
+          lastMessageAt: new Date(ts),
+        });
+        convo = await this.conversations.save(convo);
+      } else {
+        await this.conversations.update(
+          { id: convo.id, orgId },
+          { lastMessageAt: new Date(ts) },
+        );
+      }
+
+      const direction = isEcho ? MessageDirection.OUT : MessageDirection.IN;
+      const msg = this.messages.create({
+        orgId,
+        conversationId: convo.id,
+        direction,
+        externalMessageId: mid ?? undefined,
+        messageType: 'TEXT',
+        text: evt?.message?.text ?? undefined,
+        rawPayload: rawBody,
+        occurredAt: new Date(ts),
+      });
+      await this.messages.save(msg);
+      // for socket.io
+      this.gateway.emitNewMessage(orgId, {
+        conversationId: convo.id,
+        message: {
+          id: msg.id,
+          direction: msg.direction,
+          messageType: msg.messageType,
+          text: msg.text ?? null,
+          occurredAt: msg.occurredAt,
+          createdAt: msg.createdAt,
+        },
+        conversation: {
+          id: convo.id,
+          lastMessageAt: new Date(ts),
+        },
+      });
+
+      console.log('[meta] saved message for orgId=', orgId);
     }
-
-    const direction = isEcho ? MessageDirection.OUT : MessageDirection.IN;
-
-    const text = evt?.message?.text;
-
-    const msg = this.messages.create({
-      orgId,
-      conversationId: convo.id,
-      direction,
-      externalMessageId: mid ?? undefined,
-      messageType: 'TEXT',
-      text: text ?? undefined,
-      rawPayload: rawBody,
-      occurredAt: new Date(ts),
-    });
-
-    await this.messages.save(msg);
   }
 }
