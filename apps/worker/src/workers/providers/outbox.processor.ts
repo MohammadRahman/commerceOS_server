@@ -16,6 +16,9 @@ import { Repository } from 'typeorm';
 import { FakeCourierProvider } from './fake-courier.provider';
 import { FakePaymentProvider } from './fake-payment.provider';
 import { PaymentLinkStatus } from 'apps/api/src/modules/payments/enums/payment-link.enum';
+import { PathaoProvider } from '../../../../../libs/common/src/couriers/pathao.provider';
+import { SteadfastProvider } from '../../../../../libs/common/src/couriers/steadfast.provider';
+import { OrgCourierProviderEntity } from 'apps/api/src/modules/providers/entities/org-courier-provider.entity';
 
 @Injectable()
 export class OutboxProcessor {
@@ -36,6 +39,10 @@ export class OutboxProcessor {
     private orderEvents: Repository<OrderEventEntity>,
     private fakePay: FakePaymentProvider,
     private fakeCourier: FakeCourierProvider,
+    @InjectRepository(OrgCourierProviderEntity)
+    private orgCouriers: Repository<OrgCourierProviderEntity>,
+    private steadfast: SteadfastProvider,
+    private pathao: PathaoProvider,
   ) {
     // poll every 2 seconds
     setInterval(() => this.tick().catch((e) => this.logger.error(e)), 2000);
@@ -143,17 +150,59 @@ export class OutboxProcessor {
 
   private async handleShipmentBook(
     orgId: string,
-    payload: { shipmentId: string; courierProvider: string },
+    payload: { shipmentId: string; courierProvider: string; overrides?: any },
   ) {
     const shipment = await this.shipments.findOne({
       where: { id: payload.shipmentId, orgId },
     });
     if (!shipment) return;
 
-    const resp = this.fakeCourier.bookShipment({
-      shipmentId: shipment.id,
-      courierProvider: shipment.courierProvider,
+    // Load org courier credentials
+    const orgCourier = await this.orgCouriers.findOne({
+      where: { orgId, type: shipment.courierProvider as any },
     });
+
+    if (!orgCourier?.config) {
+      throw new Error(
+        `No credentials configured for ${shipment.courierProvider}`,
+      );
+    }
+
+    const overrides = payload.overrides ?? {};
+    let resp: { consignmentId: string; trackingUrl: string; raw?: any };
+
+    if (shipment.courierProvider === 'steadfast') {
+      resp = await this.steadfast.bookOrder(orgCourier.config as any, {
+        invoiceId: shipment.orderId,
+        recipientName: overrides.customerName ?? 'Customer',
+        recipientPhone: overrides.customerPhone ?? '',
+        recipientAddress: overrides.deliveryAddress ?? '',
+        codAmount: overrides.codAmount ?? 0,
+        note: overrides.notes ?? '',
+        weight: overrides.weight ?? 0.5,
+      });
+    } else if (shipment.courierProvider === 'pathao') {
+      resp = await this.pathao.bookOrder(orgCourier.config as any, {
+        storeId: Number(orgCourier.config.storeId),
+        merchantOrderId: shipment.orderId,
+        recipientName: overrides.customerName ?? 'Customer',
+        recipientPhone: overrides.customerPhone ?? '',
+        recipientAddress: overrides.deliveryAddress ?? '',
+        recipientCity: overrides.cityId ?? 1,
+        recipientZone: overrides.zoneId ?? 1,
+        deliveryType: 48,
+        itemType: 2,
+        itemQuantity: 1,
+        itemWeight: overrides.weight ?? 0.5,
+        amountToCollect: overrides.codAmount ?? 0,
+      });
+    } else {
+      // Fallback to fake for unknown providers
+      resp = this.fakeCourier.bookShipment({
+        shipmentId: shipment.id,
+        courierProvider: shipment.courierProvider,
+      });
+    }
 
     await this.shipments.update(
       { id: shipment.id, orgId },
@@ -187,4 +236,50 @@ export class OutboxProcessor {
       }),
     );
   }
+  // private async handleShipmentBook(
+  //   orgId: string,
+  //   payload: { shipmentId: string; courierProvider: string },
+  // ) {
+  //   const shipment = await this.shipments.findOne({
+  //     where: { id: payload.shipmentId, orgId },
+  //   });
+  //   if (!shipment) return;
+
+  //   const resp = this.fakeCourier.bookShipment({
+  //     shipmentId: shipment.id,
+  //     courierProvider: shipment.courierProvider,
+  //   });
+
+  //   await this.shipments.update(
+  //     { id: shipment.id, orgId },
+  //     {
+  //       consignmentId: resp.consignmentId,
+  //       trackingUrl: resp.trackingUrl,
+  //       status: ShipmentStatus.BOOKED,
+  //       lastUpdateAt: new Date(),
+  //     },
+  //   );
+
+  //   await this.shipmentEvents.save(
+  //     this.shipmentEvents.create({
+  //       orgId,
+  //       shipmentId: shipment.id,
+  //       type: 'SHIPMENT_BOOKED',
+  //       payload: resp,
+  //     }),
+  //   );
+
+  //   await this.orderEvents.save(
+  //     this.orderEvents.create({
+  //       orgId,
+  //       orderId: shipment.orderId,
+  //       type: 'SHIPMENT_BOOKED',
+  //       data: {
+  //         shipmentId: shipment.id,
+  //         consignmentId: resp.consignmentId,
+  //         trackingUrl: resp.trackingUrl,
+  //       },
+  //     }),
+  //   );
+  // }
 }

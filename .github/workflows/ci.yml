@@ -1,0 +1,86 @@
+# .github/workflows/ci.yml
+# Runs on every pull request:
+#   1. Lint
+#   2. Type check
+#   3. Unit tests
+#   4. Build (verifies it compiles)
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Lint · Type Check · Test · Build
+    runs-on: ubuntu-latest
+
+    # Postgres + Redis for integration tests
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     commerceos
+          POSTGRES_PASSWORD: commerceos
+          POSTGRES_DB:       commerceos_test
+        ports: ['5434:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV:              test
+      POSTGRES_HOST:         localhost
+      POSTGRES_PORT:         5434
+      POSTGRES_DATABASE:     commerceos_test
+      POSTGRES_USERNAME:     commerceos
+      POSTGRES_PASSWORD:     commerceos
+      POSTGRES_SYNCHRONIZE:  false
+      REDIS_HOST:            localhost
+      REDIS_PORT:            6379
+      JWT_ACCESS_SECRET:     ci-access-secret-not-real
+      JWT_REFRESH_SECRET:    ci-refresh-secret-not-real
+      JWT_ACCESS_TTL_SECONDS:  900
+      JWT_REFRESH_TTL_SECONDS: 2592000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Run tests
+        run: npm test -- --passWithNoTests --forceExit
+
+      - name: Build API
+        run: npm run build api
+
+      - name: Build Worker
+        run: npm run build worker

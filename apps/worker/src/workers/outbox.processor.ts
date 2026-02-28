@@ -20,6 +20,10 @@ import {
   ShipmentEntity,
   ShipmentStatus,
 } from 'apps/api/src/modules/shipments/entities/shipment.entity';
+import { OrgPaymentProviderEntity } from 'apps/api/src/modules/providers/entities/org-payment-provider.entity';
+import { NagadProvider } from './providers/nagad.provider';
+import { BkashProvider } from './providers/bkash.provider';
+import { SslCommerzProvider } from './providers/sslcommerz.provider';
 
 @Injectable()
 export class OutboxProcessor {
@@ -38,6 +42,11 @@ export class OutboxProcessor {
     private shipmentEvents: Repository<ShipmentEventEntity>,
     @InjectRepository(OrderEventEntity)
     private orderEvents: Repository<OrderEventEntity>,
+    @InjectRepository(OrgPaymentProviderEntity)
+    private orgPayments: Repository<OrgPaymentProviderEntity>,
+    private bkash: BkashProvider,
+    private nagad: NagadProvider,
+    private sslcommerz: SslCommerzProvider,
     private pay: FakePaymentProvider,
     private courier: FakeCourierProvider,
   ) {
@@ -100,7 +109,6 @@ export class OutboxProcessor {
       );
     }
   }
-
   private async handlePaymentLinkGenerate(
     orgId: string,
     payload: { paymentLinkId: string },
@@ -110,10 +118,69 @@ export class OutboxProcessor {
     });
     if (!link) return;
 
-    const resp = this.pay.generatePaymentLink({
-      paymentLinkId: link.id,
-      amount: link.amount,
+    // Load org payment provider credentials
+    const orgProvider = await this.orgPayments.findOne({
+      where: { orgId, type: link.provider as any },
     });
+
+    let resp: { providerRef: string; url: string };
+
+    // Route to real provider if credentials exist, else fake
+    if (orgProvider?.config && Object.keys(orgProvider.config).length > 0) {
+      try {
+        if (link.provider === 'bkash') {
+          resp = await this.bkash.createPayment(orgProvider.config as any, {
+            amount: link.amount,
+            orderId: link.orderId,
+            reference: link.id,
+            callbackUrl: `${process.env.APP_URL ?? 'https://app.commerceos.com'}/payment/callback/bkash`,
+          });
+        } else if (link.provider === 'nagad') {
+          resp = await this.nagad.createPayment(orgProvider.config as any, {
+            amount: link.amount,
+            orderId: link.orderId,
+            callbackUrl: `${process.env.APP_URL ?? 'https://app.commerceos.com'}/payment/callback/nagad`,
+          });
+        } else if (link.provider === 'sslcommerz') {
+          resp = await this.sslcommerz.createPayment(
+            orgProvider.config as any,
+            {
+              amount: link.amount,
+              orderId: link.orderId,
+              customerName: 'Customer',
+              customerEmail: 'customer@example.com',
+              customerPhone: '01700000000',
+              customerAddress: 'Dhaka, Bangladesh',
+              successUrl: `${process.env.APP_URL ?? 'https://app.commerceos.com'}/payment/success`,
+              failUrl: `${process.env.APP_URL ?? 'https://app.commerceos.com'}/payment/fail`,
+              cancelUrl: `${process.env.APP_URL ?? 'https://app.commerceos.com'}/payment/cancel`,
+              ipnUrl: `${process.env.API_URL ?? 'https://api.commerceos.com'}/v1/webhooks/payments/sslcommerz`,
+            },
+          );
+        } else {
+          // Fallback to fake for unknown providers
+          resp = this.pay.generatePaymentLink({
+            paymentLinkId: link.id,
+            amount: link.amount,
+          });
+        }
+      } catch (e: any) {
+        this.logger.error(
+          `Payment provider error for ${link.provider}: ${String(e?.message ?? e)}`,
+        );
+        // Fall back to fake so shipment isn't stuck
+        resp = this.pay.generatePaymentLink({
+          paymentLinkId: link.id,
+          amount: link.amount,
+        });
+      }
+    } else {
+      // No credentials configured — use fake
+      resp = this.pay.generatePaymentLink({
+        paymentLinkId: link.id,
+        amount: link.amount,
+      });
+    }
 
     await this.paymentLinks.update(
       { id: link.id, orgId },
@@ -142,6 +209,48 @@ export class OutboxProcessor {
       }),
     );
   }
+
+  // private async handlePaymentLinkGenerate(
+  //   orgId: string,
+  //   payload: { paymentLinkId: string },
+  // ) {
+  //   const link = await this.paymentLinks.findOne({
+  //     where: { id: payload.paymentLinkId, orgId },
+  //   });
+  //   if (!link) return;
+
+  //   const resp = this.pay.generatePaymentLink({
+  //     paymentLinkId: link.id,
+  //     amount: link.amount,
+  //   });
+
+  //   await this.paymentLinks.update(
+  //     { id: link.id, orgId },
+  //     {
+  //       providerRef: resp.providerRef,
+  //       url: resp.url,
+  //       status: 'SENT',
+  //     },
+  //   );
+
+  //   await this.paymentEvents.save(
+  //     this.paymentEvents.create({
+  //       orgId,
+  //       paymentLinkId: link.id,
+  //       type: 'PAYMENT_LINK_GENERATED',
+  //       payload: resp,
+  //     }),
+  //   );
+
+  //   await this.orderEvents.save(
+  //     this.orderEvents.create({
+  //       orgId,
+  //       orderId: link.orderId,
+  //       type: 'PAYMENT_LINK_SENT',
+  //       data: { paymentLinkId: link.id, url: resp.url },
+  //     }),
+  //   );
+  // }
 
   private async handleShipmentBook(
     orgId: string,

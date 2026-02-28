@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -23,7 +24,7 @@ import { OrganizationEntity } from '../tenancy/entities/organization.entity';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (_config: ConfigService) => ({}), // we pass secrets per-sign to keep access/refresh split clean
+      useFactory: (_: ConfigService) => ({}), // we pass secrets per-sign to keep access/refresh split clean
     }),
   ],
   controllers: [AuthController],

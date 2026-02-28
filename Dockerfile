@@ -1,0 +1,60 @@
+# Dockerfile
+# Multi-stage build — keeps final image small (~200MB vs ~1GB)
+# Builds the NestJS monorepo and runs only the API app
+
+# ── Stage 1: deps ─────────────────────────────────────────────────────────────
+# Install ALL dependencies (including devDeps needed for build)
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --frozen-lockfile
+
+# ── Stage 2: build ────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Copy deps from previous stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy source
+COPY . .
+
+# Build the API app (outputs to dist/apps/api)
+RUN npm run build api
+
+# ── Stage 3: production image ─────────────────────────────────────────────────
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Security: run as non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser  -S nestjs -u 1001
+
+# Install only production dependencies
+COPY package*.json ./
+RUN npm ci --frozen-lockfile --omit=dev && \
+    npm cache clean --force
+
+# Copy compiled output from builder
+COPY --from=builder /app/dist ./dist
+
+# Copy migrations (needed for migration:run at startup)
+COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/typeorm.config.js ./typeorm.config.js 2>/dev/null || true
+
+# Copy any other runtime assets
+COPY --from=builder /app/nest-cli.json ./nest-cli.json
+
+# Switch to non-root user
+USER nestjs
+
+# Railway sets PORT automatically
+EXPOSE 3000
+
+# Health check — Railway uses this to know when app is ready
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget -qO- http://localhost:3000/health/live || exit 1
+
+# Start the API
+CMD ["node", "dist/apps/api/main"]

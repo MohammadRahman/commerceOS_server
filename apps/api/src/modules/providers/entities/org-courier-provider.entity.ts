@@ -24,4 +24,13 @@ export class OrgCourierProviderEntity extends AbstractEntity<OrgCourierProviderE
 
   @Column({ type: 'jsonb', nullable: true })
   config?: Record<string, any>;
+
+  // Webhook key for receiving delivery status callbacks
+  @Column({
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+    name: 'webhook_key',
+  })
+  webhookKey?: string;
 }

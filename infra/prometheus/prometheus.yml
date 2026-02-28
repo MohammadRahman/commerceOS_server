@@ -1,0 +1,35 @@
+# infra/prometheus/prometheus.yml
+# Prometheus scrape configuration
+# The NestJS app exposes /metrics via @willsoto/nestjs-prometheus
+
+global:
+  scrape_interval:     15s  # How often to scrape
+  evaluation_interval: 15s  # How often to evaluate alert rules
+  external_labels:
+    env: '${NODE_ENV:-development}'
+
+scrape_configs:
+
+  # ── NestJS API ─────────────────────────────────────────────────────────────
+  - job_name: 'commerceos-api'
+    static_configs:
+      - targets: ['host.docker.internal:3000']  # API running on host
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # ── Postgres exporter (if running) ────────────────────────────────────────
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['host.docker.internal:9187']
+    scrape_interval: 30s
+
+  # ── Redis exporter (if running) ───────────────────────────────────────────
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['host.docker.internal:9121']
+    scrape_interval: 30s
+
+  # ── Prometheus self-monitoring ─────────────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

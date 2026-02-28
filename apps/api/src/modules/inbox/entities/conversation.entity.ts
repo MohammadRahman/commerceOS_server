@@ -1,8 +1,21 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, Unique } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  Unique,
+} from 'typeorm';
 import { AbstractEntity } from '@app/common/database/base.entity';
 import { ChannelEntity } from './channel.entity';
 import { MessageEntity } from './message.entity';
 
+export enum ConversationStatus {
+  OPEN = 'open',
+  RESOLVED = 'resolved',
+  PENDING = 'pending',
+}
 @Entity('conversations')
 @Unique('uq_conversations_channel_thread', ['channelId', 'externalThreadId'])
 export class ConversationEntity extends AbstractEntity<ConversationEntity> {
@@ -47,4 +60,11 @@ export class ConversationEntity extends AbstractEntity<ConversationEntity> {
 
   @OneToMany(() => MessageEntity, (m) => m.conversation)
   messages: MessageEntity[];
+
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: ConversationStatus.OPEN,
+  })
+  status: ConversationStatus;
 }

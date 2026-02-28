@@ -1,0 +1,22 @@
+# .dockerignore
+node_modules
+dist
+.git
+.github
+*.md
+*.log
+.env
+.env.*
+!.env.example
+coverage
+k6
+infra
+apps/api/.env
+apps/worker/.env
+docker-compose*.yml
+.prettierrc
+.eslintrc*
+eslint.config*
+**/*.spec.ts
+**/*.e2e-spec.ts
+**/test/

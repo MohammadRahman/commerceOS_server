@@ -1,6 +1,13 @@
+/* eslint-disable @typescript-eslint/await-thenable */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ShipmentEntity, ShipmentStatus } from './entities/shipment.entity';
@@ -8,6 +15,9 @@ import { ShipmentEventEntity } from './entities/shipment-event.entity';
 import { OrderEntity } from '../orders/entities/order.entity';
 import { OrderEventEntity } from '../orders/entities/order-event.entity';
 import { IdempotencyService, OutboxService } from '@app/common';
+import { PathaoProvider } from '@app/common/couriers/pathao.provider';
+import { SteadfastProvider } from '@app/common/couriers/steadfast.provider';
+import { OrgCourierProviderEntity } from '../providers/entities/org-courier-provider.entity';
 
 @Injectable()
 export class ShipmentsService {
@@ -21,6 +31,11 @@ export class ShipmentsService {
     private orderEvents: Repository<OrderEventEntity>,
     private outbox: OutboxService,
     private idem: IdempotencyService,
+
+    @InjectRepository(OrgCourierProviderEntity)
+    private orgCouriers: Repository<OrgCourierProviderEntity>,
+    private steadfast: SteadfastProvider,
+    private pathao: PathaoProvider,
   ) {}
 
   async bookShipment(
@@ -153,6 +168,123 @@ export class ShipmentsService {
     }
 
     return { ok: true };
+  }
+
+  async getShipment(orgId: string, id: string) {
+    const shipment = await this.shipments.findOne({
+      where: { id, orgId },
+      relations: ['events'],
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    return shipment;
+  }
+  async trackShipment(orgId: string, shipmentId: string) {
+    const shipment = await this.shipments.findOne({
+      where: { id: shipmentId, orgId },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    if (!shipment.consignmentId)
+      throw new BadRequestException('No consignment ID yet');
+
+    const cfg = await this.getOrgCourierConfig(orgId, shipment.courierProvider);
+
+    let result: any;
+    if (shipment.courierProvider === 'steadfast') {
+      result = await this.steadfast.trackOrder(cfg, shipment.consignmentId);
+    } else if (shipment.courierProvider === 'pathao') {
+      result = await this.pathao.trackOrder(cfg, shipment.consignmentId);
+    } else {
+      result = { status: shipment.status };
+    }
+
+    const next = this.mapStatus(result.status?.toUpperCase() ?? '');
+    if (next && next !== shipment.status) {
+      await this.shipments.update(
+        { id: shipmentId, orgId },
+        {
+          status: next,
+          lastUpdateAt: new Date(),
+        },
+      );
+    }
+
+    return { ...result, shipmentId, currentStatus: next ?? shipment.status };
+  }
+
+  async cancelShipment(orgId: string, shipmentId: string) {
+    const shipment = await this.shipments.findOne({
+      where: { id: shipmentId, orgId },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+
+    const cfg = await this.getOrgCourierConfig(orgId, shipment.courierProvider);
+
+    let result: any;
+    if (shipment.courierProvider === 'steadfast') {
+      result = await this.steadfast.cancelOrder(
+        cfg,
+        shipment.consignmentId ?? '',
+      );
+    } else if (shipment.courierProvider === 'pathao') {
+      result = await this.pathao.cancelOrder(cfg, shipment.consignmentId ?? '');
+    }
+
+    await this.shipments.update(
+      { id: shipmentId, orgId },
+      {
+        status: ShipmentStatus.CANCELLED,
+        lastUpdateAt: new Date(),
+      },
+    );
+
+    await this.shipmentEvents.save(
+      this.shipmentEvents.create({
+        orgId,
+        shipmentId,
+        type: 'SHIPMENT_CANCELLED',
+        payload: result,
+      }),
+    );
+
+    return { cancelled: true, ...result };
+  }
+
+  async getZones(
+    orgId: string,
+    provider: string,
+    params: { cityId?: string; zoneId?: string },
+  ) {
+    const cfg = await this.getOrgCourierConfig(orgId, provider);
+
+    if (provider === 'steadfast') {
+      return this.steadfast.getAreas(cfg);
+    } else if (provider === 'pathao') {
+      if (params.zoneId)
+        return this.pathao.getAreas(cfg, Number(params.zoneId));
+      if (params.cityId)
+        return this.pathao.getZones(cfg, Number(params.cityId));
+      return this.pathao.getCities(cfg);
+    }
+    return { areas: [] };
+  }
+  async calculateCharge(orgId: string, provider: string, params: any) {
+    const cfg = await this.getOrgCourierConfig(orgId, provider);
+
+    if (provider === 'steadfast') {
+      return this.steadfast.calculateCharge(cfg, params);
+    } else if (provider === 'pathao') {
+      return this.pathao.calculateCharge(cfg, params);
+    }
+    return { total: 0 };
+  }
+
+  private async getOrgCourierConfig(orgId: string, provider: string) {
+    const row = await this.orgCouriers.findOne({
+      where: { orgId, type: provider as any },
+    });
+    if (!row?.config)
+      throw new BadRequestException(`${provider} not configured`);
+    return row.config as any;
   }
 
   private mapStatus(s: string): ShipmentStatus | null {

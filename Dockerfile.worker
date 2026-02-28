@@ -1,0 +1,30 @@
+# Dockerfile.worker
+# Builds and runs the worker app from the same monorepo
+
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --frozen-lockfile
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build worker
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser  -S nestjs -u 1001
+
+COPY package*.json ./
+RUN npm ci --frozen-lockfile --omit=dev && \
+    npm cache clean --force
+
+COPY --from=builder /app/dist ./dist
+
+USER nestjs
+
+# Worker doesn't expose HTTP — it processes queues
+CMD ["node", "dist/apps/worker/main"]

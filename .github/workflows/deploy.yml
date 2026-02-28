@@ -1,0 +1,98 @@
+# .github/workflows/deploy.yml
+# Runs on merge to main:
+#   1. CI checks pass
+#   2. Run DB migrations
+#   3. Deploy API to Railway
+#   4. Deploy Worker to Railway
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Only one deploy at a time — cancel in-progress if new commit pushed
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false  # Don't cancel deploys — let them finish
+
+jobs:
+  # ── Job 1: Run full CI first ─────────────────────────────────────────────
+  ci:
+    name: CI checks
+    uses: ./.github/workflows/ci.yml
+
+  # ── Job 2: Migrate database ──────────────────────────────────────────────
+  migrate:
+    name: Run migrations
+    needs: ci
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV:             production
+      POSTGRES_HOST:        ${{ secrets.POSTGRES_HOST }}
+      POSTGRES_PORT:        ${{ secrets.POSTGRES_PORT }}
+      POSTGRES_DATABASE:    ${{ secrets.POSTGRES_DATABASE }}
+      POSTGRES_USERNAME:    ${{ secrets.POSTGRES_USERNAME }}
+      POSTGRES_PASSWORD:    ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_SYNCHRONIZE: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Run migrations
+        run: npm run migration:run
+
+  # ── Job 3: Deploy API ────────────────────────────────────────────────────
+  deploy-api:
+    name: Deploy API
+    needs: migrate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy API to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up \
+            --service api \
+            --dockerfile Dockerfile \
+            --detach
+
+  # ── Job 4: Deploy Worker ─────────────────────────────────────────────────
+  deploy-worker:
+    name: Deploy Worker
+    needs: migrate        # Worker also needs migrations to be done
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy Worker to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up \
+            --service worker \
+            --dockerfile Dockerfile.worker \
+            --detach

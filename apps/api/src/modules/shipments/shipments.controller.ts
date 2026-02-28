@@ -1,6 +1,15 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ShipmentsService } from './shipments.service';
 import { Ctx } from '@app/common/utils/request-context';
 import { BookShipmentDto } from './dto/book-shipment.dto';
@@ -30,5 +39,44 @@ export class ShipmentsController {
     if (!orgId) return { ok: true, ignored: 'missing_orgId' };
 
     return this.shipments.handleCourierWebhook(provider, orgId, body);
+  }
+
+  @Get('v1/shipments/:id')
+  @UseGuards(JwtAuthGuard)
+  getShipment(@Ctx() ctx: { orgId: string }, @Param('id') id: string) {
+    return this.shipments.getShipment(ctx.orgId, id);
+  }
+
+  @Post('v1/shipments/:id/track')
+  @UseGuards(JwtAuthGuard)
+  track(@Ctx() ctx: { orgId: string }, @Param('id') id: string) {
+    return this.shipments.trackShipment(ctx.orgId, id);
+  }
+
+  @Post('v1/shipments/:id/cancel')
+  @UseGuards(JwtAuthGuard)
+  cancel(@Ctx() ctx: { orgId: string }, @Param('id') id: string) {
+    return this.shipments.cancelShipment(ctx.orgId, id);
+  }
+
+  @Get('v1/couriers/:provider/zones')
+  @UseGuards(JwtAuthGuard)
+  zones(
+    @Ctx() ctx: { orgId: string },
+    @Param('provider') provider: string,
+    @Query('cityId') cityId?: string,
+    @Query('zoneId') zoneId?: string,
+  ) {
+    return this.shipments.getZones(ctx.orgId, provider, { cityId, zoneId });
+  }
+
+  @Post('v1/couriers/:provider/calculate')
+  @UseGuards(JwtAuthGuard)
+  calculate(
+    @Ctx() ctx: { orgId: string },
+    @Param('provider') provider: string,
+    @Body() body: any,
+  ) {
+    return this.shipments.calculateCharge(ctx.orgId, provider, body);
   }
 }
