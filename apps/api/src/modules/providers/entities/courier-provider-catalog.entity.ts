@@ -1,5 +1,5 @@
 import { Column, Entity, Index, Unique } from 'typeorm';
-import { AbstractEntity } from '@app/common';
+import { AbstractEntity } from '@app/common/database/base.entity';
 
 export enum CourierProviderType {
   PATHAO = 'pathao',

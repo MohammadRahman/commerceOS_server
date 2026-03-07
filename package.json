@@ -22,9 +22,15 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./apps/commerce-os_server/test/jest-e2e.json",
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d typeorm.config.ts",
-    "migration:generate": "npm run typeorm -- migration:generate",
-    "migration:run": "npm run typeorm -- migration:run",
-    "migration:revert": "npm run typeorm -- migration:revert"
+    "migration:run": "NODE_ENV=development  ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:run      -d typeorm.config.ts",
+    "migration:run:dev": "NODE_ENV=development  ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:run      -d typeorm.config.ts",
+    "migration:run:prod": "NODE_ENV=production   ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:run      -d typeorm.config.ts",
+    "migration:revert": "NODE_ENV=development  ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:revert   -d typeorm.config.ts",
+    "migration:revert:prod": "NODE_ENV=production   ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:revert   -d typeorm.config.ts",
+    "migration:generate": "NODE_ENV=development  ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:generate -d typeorm.config.ts",
+    "migration:create": "ts-node node_modules/typeorm/cli migration:create",
+    "migration:show": "NODE_ENV=development  ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:show     -d typeorm.config.ts",
+    "migration:show:prod": "NODE_ENV=production   ts-node -r tsconfig-paths/register node_modules/typeorm/cli migration:show     -d typeorm.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.998.0",

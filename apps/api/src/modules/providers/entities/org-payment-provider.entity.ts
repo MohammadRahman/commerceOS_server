@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { AbstractEntity } from '@app/common';
+import { AbstractEntity } from '@app/common/database/base.entity';
 import { OrganizationEntity } from '../../tenancy/entities/organization.entity';
 import { PaymentProviderType } from './payment-provider-catalog.entity';
 

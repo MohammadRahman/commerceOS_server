@@ -1,4 +1,4 @@
-import { AbstractEntity } from '@app/common';
+import { AbstractEntity } from '@app/common/database/base.entity';
 import { Column, Entity, Index, Unique } from 'typeorm';
 
 export enum PaymentProviderType {

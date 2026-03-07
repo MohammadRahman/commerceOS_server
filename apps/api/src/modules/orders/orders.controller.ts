@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
-import { Ctx } from '@app/common/utils/request-context';
+import { Ctx, OrgId, UserId } from '@app/common/utils/request-context';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderStatus } from './entities/order.entity';
 import { RbacGuard, RequirePerm } from '@app/common';
@@ -125,6 +125,23 @@ export class OrdersController {
       ctx.userId,
       id,
       OrderStatus.RETURNED,
+    );
+  }
+  // newly added endpoint for COD collection recording
+  @Post(':id/cod-collected')
+  @UseGuards(JwtAuthGuard)
+  collectCod(
+    @OrgId() orgId: string,
+    @UserId() userId: string,
+    @Param('id') orderId: string,
+    @Body() body: { collectedAmount: number; note?: string },
+  ) {
+    return this.orders.recordCodCollection(
+      orgId,
+      userId,
+      orderId,
+      body.collectedAmount,
+      body.note,
     );
   }
 }

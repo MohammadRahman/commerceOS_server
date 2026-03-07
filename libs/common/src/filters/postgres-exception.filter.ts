@@ -35,6 +35,13 @@ export class PostgresExceptionFilter implements ExceptionFilter {
     }
 
     // fallback
+    console.error('[PostgresExceptionFilter] Unhandled DB error:', {
+      code: exception?.driverError?.code,
+      message: exception?.message,
+      detail: exception?.driverError?.detail,
+      query: (exception as any).query,
+      parameters: (exception as any).parameters,
+    });
     return response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       message: 'Database error',
     });

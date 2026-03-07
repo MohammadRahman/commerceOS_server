@@ -1,0 +1,52 @@
+# Dockerfile.backup
+# ─────────────────────────────────────────────────────────────────────────────
+# Dedicated backup image. Deployed as a SEPARATE Railway service.
+# NOT your API image — kept separate so the API stays small.
+#
+# Contains:
+#   pg_dump / pg_restore  — PostgreSQL 16 client (matches Railway's Postgres 16)
+#   rclone                — cloud upload (Backblaze B2 / S3 / R2 compatible)
+#   dcron                 — lightweight cron for dev use
+#   bash + gzip           — scripting and compression
+#
+# Railway usage: runs backup.sh once per invocation, then exits.
+# Railway cron restarts it on schedule (set in Railway dashboard).
+#
+# Dev usage: runs via docker-compose, crond keeps it alive and schedules runs.
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM alpine:3.19
+
+# postgresql16-client gives pg_dump/pg_restore matching Railway's Postgres 16
+RUN apk add --no-cache \
+    postgresql16-client \
+    rclone \
+    bash \
+    gzip \
+    curl \
+    dcron \
+    tzdata \
+    && rm -rf /var/cache/apk/*
+
+# Match your timezone
+ENV TZ=Asia/Dhaka
+
+# Non-root user
+RUN addgroup -g 1001 -S backup && \
+    adduser  -u 1001 -S backup -G backup
+
+# Directories
+RUN mkdir -p /backups /scripts && \
+    chown -R backup:backup /backups /scripts
+
+# Copy scripts
+COPY docker/backup/backup.sh    /scripts/backup.sh
+COPY docker/backup/restore.sh   /scripts/restore.sh
+COPY docker/backup/entrypoint.sh /scripts/entrypoint.sh
+RUN chmod +x /scripts/*.sh
+
+USER backup
+
+# Railway runs this once per cron tick then container exits.
+# Dev entrypoint wraps this in crond to keep the container alive.
+CMD ["/scripts/backup.sh"]

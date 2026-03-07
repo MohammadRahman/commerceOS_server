@@ -6,7 +6,7 @@ import { ShipmentEntity } from './entities/shipment.entity';
 import { ShipmentEventEntity } from './entities/shipment-event.entity';
 import { OrderEntity } from '../orders/entities/order.entity';
 import { OrderEventEntity } from '../orders/entities/order-event.entity';
-import { IdempotencyModule, OutboxModule } from '@app/common';
+import { IdempotencyModule, OutboxModule, RedxProvider } from '@app/common';
 import { HttpModule } from '@nestjs/axios';
 import { OrgCourierProviderEntity } from '../providers/entities/org-courier-provider.entity';
 import { SteadfastProvider } from '@app/common/couriers/steadfast.provider';
@@ -26,6 +26,11 @@ import { PathaoProvider } from '@app/common/couriers/pathao.provider';
     HttpModule,
   ],
   controllers: [ShipmentsController],
-  providers: [ShipmentsService, SteadfastProvider, PathaoProvider],
+  providers: [
+    ShipmentsService,
+    SteadfastProvider,
+    PathaoProvider,
+    RedxProvider,
+  ],
 })
 export class ShipmentsModule {}

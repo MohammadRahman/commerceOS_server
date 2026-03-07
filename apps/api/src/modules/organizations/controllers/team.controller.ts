@@ -89,7 +89,21 @@ export class TeamController {
     }
 
     const role = (body.role?.toUpperCase() as UserRole) ?? UserRole.AGENT;
-    const member = await this.users.save(
+    // const member = await this.users.save(
+    //   this.users.create({
+    //     orgId,
+    //     email,
+    //     name: body.name?.trim() ?? email.split('@')[0],
+    //     role,
+    //     status: UserStatus.INVITED,
+    //     passwordHash,
+    //     tempPassword: TEMP_PASSWORD,
+    //     isActive: true,
+    //   } as any),
+    // );
+    // this.logger.log(`[DEV] Invited ${email} — temp password: ${TEMP_PASSWORD}`);
+    // return { member: this.toDto(member, TEMP_PASSWORD) };
+    const member = (await this.users.save(
       this.users.create({
         orgId,
         email,
@@ -100,7 +114,8 @@ export class TeamController {
         tempPassword: TEMP_PASSWORD,
         isActive: true,
       } as any),
-    );
+    )) as unknown as UserEntity;
+
     this.logger.log(`[DEV] Invited ${email} — temp password: ${TEMP_PASSWORD}`);
     return { member: this.toDto(member, TEMP_PASSWORD) };
   }

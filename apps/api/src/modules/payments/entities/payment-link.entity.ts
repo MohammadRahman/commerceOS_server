@@ -37,4 +37,19 @@ export class PaymentLinkEntity extends AbstractEntity<PaymentLinkEntity> {
     nullable: true,
   })
   providerRef?: string;
+
+  /**
+   * Cash-on-delivery remainder.
+   * 0 = full payment was collected online.
+   * > 0 = split payment — this amount is collected at the door.
+   */
+  @Column({ type: 'int', nullable: true, default: 0 })
+  codAmount: number;
+
+  /**
+   * Transaction ID submitted by the customer (optional).
+   * Set by uploadPaymentScreenshot() when the customer includes it.
+   */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  trxId: string | null;
 }

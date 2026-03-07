@@ -21,18 +21,18 @@ import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
 import { THROTTLE_AUTH } from '@app/common';
 
 @Controller('v1/auth')
-@UseGuards(ThrottlerGuard)
+// @UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(private auth: AuthService) {}
 
   @Post('register')
-  @Throttle(THROTTLE_AUTH)
+  // @Throttle(THROTTLE_AUTH)
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
   @Post('login')
   @HttpCode(200)
-  @Throttle(THROTTLE_AUTH)
+  // @Throttle(THROTTLE_AUTH)
   async login(@Body() dto: LoginDto, @Req() req: express.Request) {
     return this.auth.login({
       email: dto.email,
@@ -49,7 +49,7 @@ export class AuthController {
   }
   @Post('refresh')
   @HttpCode(200)
-  @Throttle({ refresh: { limit: 20, ttl: 60_000 } })
+  // @Throttle({ refresh: { limit: 20, ttl: 60_000 } })
   async refresh(@Body() dto: RefreshDto, @Req() req: express.Request) {
     return this.auth.refresh({
       refreshToken: dto.refreshToken,
@@ -60,7 +60,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @HttpCode(200)
-  @SkipThrottle()
+  // @SkipThrottle()
   @Post('logout')
   async logout(@Ctx() ctx: { orgId: string; userId: string }) {
     // for now: logout all sessions (simple)

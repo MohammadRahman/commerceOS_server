@@ -1,16 +1,45 @@
 # railway.toml
-# Railway project configuration
-# Docs: https://docs.railway.app/reference/config-as-code
+# ─────────────────────────────────────────────────────────────────────────────
+# Defines Railway services for this repo.
+# Railway reads this to configure builds and deployments.
+#
+# Services:
+#   api     — the NestJS API (main service)
+#   backup  — scheduled pg_dump to Backblaze B2 (separate service)
+#
+# Setup in Railway dashboard:
+#   1. api service:    point to this repo, Dockerfile = Dockerfile
+#   2. backup service: point to this repo, Dockerfile = Dockerfile.backup
+#      Set cron schedule in the backup service settings → "0 2 * * *" (2am UTC)
+#      Add the env vars listed in the [backup] section below.
+# ─────────────────────────────────────────────────────────────────────────────
 
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+  builder = "DOCKERFILE"
 
+# ── API service ───────────────────────────────────────────────────────────────
 [deploy]
-startCommand = "node dist/apps/api/main"
-healthcheckPath = "/health/live"
-healthcheckTimeout = 60
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+  dockerfilePath     = "Dockerfile"
+  startCommand       = "docker-entrypoint.sh node dist/apps/api/main"
+  healthcheckPath    = "/health/live"
+  healthcheckTimeout = 90        # seconds — enough for migrations to run
+  restartPolicyType  = "ON_FAILURE"
+  restartPolicyMaxRetries = 3
 
-# Railway injects PORT automatically — your main.ts already reads process.env.PORT
+# ── Backup service ────────────────────────────────────────────────────────────
+# Create a second service in Railway pointing to the same repo.
+# Set its Dockerfile to Dockerfile.backup.
+# Set the following environment variables on the backup service:
+#
+#   DATABASE_URL        = ${{Postgres.DATABASE_URL}}   ← Railway reference var
+#   BACKUP_ENV          = prod
+#   BACKUP_RETAIN_DAYS  = 30
+#   BACKUP_LOCAL_ONLY   = false
+#   B2_ACCOUNT_ID       = <your B2 account ID>
+#   B2_ACCOUNT_KEY      = <your B2 application key>
+#   B2_BUCKET           = <your B2 bucket name>
+#   B2_PATH             = postgres/prod
+#   NOTIFY_WEBHOOK_URL  = <slack/discord webhook — optional>
+#
+# Set cron schedule in Railway dashboard: 0 2 * * * (2am UTC daily)
+# Railway will start the container, backup.sh runs and exits, Railway stops it.

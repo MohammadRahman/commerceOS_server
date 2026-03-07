@@ -14,9 +14,12 @@ export class CloudinaryStrategy implements StorageStrategy {
 
   constructor(private config: ConfigService) {
     cloudinary.config({
-      cloud_name: this.config.get('CLOUDINARY_CLOUD_NAME'),
-      api_key: this.config.get('CLOUDINARY_API_KEY'),
-      api_secret: this.config.get('CLOUDINARY_API_SECRET'),
+      cloud_name: 'dtb0nvbxh',
+      api_key: '737434785974793',
+      api_secret: 'ww0DcwdpEOJwFsVAuJkBmJwfIHs',
+      // cloud_name: this.config.get('CLOUDINARY_CLOUD_NAME'),
+      // api_key: this.config.get('CLOUDINARY_API_KEY'),
+      // api_secret: this.config.get('CLOUDINARY_API_SECRET'),
     });
   }
 

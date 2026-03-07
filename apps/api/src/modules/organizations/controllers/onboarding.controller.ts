@@ -15,7 +15,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { ChannelEntity } from '../../inbox/entities/channel.entity';
+import {
+  ChannelEntity,
+  ChannelType,
+} from '../../inbox/entities/channel.entity';
 import { PaymentProviderEntity } from '../../payments/entities/payment-provider.entity';
 import { OrgCourierProviderEntity } from '../../providers/entities/org-courier-provider.entity';
 import { OrgPaymentProviderEntity } from '../../providers/entities/org-payment-provider.entity';
@@ -132,17 +135,36 @@ export class OnboardingController {
       );
 
       // 2. Channels — mark selected as PENDING if not yet connected
+      // if (body.channels?.selected?.length) {
+      //   for (const type of body.channels.selected) {
+      //     const existing = await queryRunner.manager.findOne(ChannelEntity, {
+      //       where: { orgId: ctx.orgId, type } as any,
+      //     });
+      //     if (!existing) {
+      //       await queryRunner.manager.save(
+      //         ChannelEntity,
+      //         queryRunner.manager.create(ChannelEntity, {
+      //           orgId: ctx.orgId,
+      //           type,
+      //           status: 'PENDING',
+      //         }),
+      //       );
+      //     }
+      //   }
+      // }
       if (body.channels?.selected?.length) {
-        for (const type of body.channels.selected) {
+        for (const typeStr of body.channels.selected) {
+          // Cast string to ChannelType enum — unknown values are stored as-is
+          const channelType = typeStr as ChannelType;
           const existing = await queryRunner.manager.findOne(ChannelEntity, {
-            where: { orgId: ctx.orgId, type } as any,
+            where: { orgId: ctx.orgId, type: channelType } as any,
           });
           if (!existing) {
             await queryRunner.manager.save(
               ChannelEntity,
               queryRunner.manager.create(ChannelEntity, {
                 orgId: ctx.orgId,
-                type,
+                type: channelType,
                 status: 'PENDING',
               }),
             );

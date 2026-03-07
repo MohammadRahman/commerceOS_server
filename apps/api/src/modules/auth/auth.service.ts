@@ -151,6 +151,7 @@ export class AuthService {
         where: { email, isActive: true },
         take: 2,
       });
+      console.log('matches', matches);
 
       if (matches.length === 0)
         throw new UnauthorizedException('Invalid credentials');
@@ -162,12 +163,14 @@ export class AuthService {
       }
 
       user = matches[0];
+      console.log('user', user);
     }
 
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('Invalid credentials');
+    if (!ok)
+      throw new UnauthorizedException('password does not match credentials');
 
     const sessionId = randomUUID();
 

@@ -22,7 +22,7 @@ import Redis from 'ioredis';
 // ── Named rate-limit presets ──────────────────────────────────────────────────
 
 export const THROTTLE_AUTH = {
-  auth: { limit: 5, ttl: 15 * 60 * 1000 }, // 5 attempts per 15 minutes
+  auth: { limit: 25, ttl: 15 * 60 * 1000 }, // 25 attempts per 15 minutes
 };
 
 export const THROTTLE_INVITE = {
@@ -44,7 +44,7 @@ export const THROTTLE_API = {
           // Default fallback if no @Throttle decorator used
           { name: 'default', limit: 200, ttl: 60_000 },
           // Auth endpoints — tight limit
-          { name: 'auth', limit: 5, ttl: 15 * 60_000 },
+          { name: 'auth', limit: 25, ttl: 15 * 60_000 },
           // Invite endpoints
           { name: 'invite', limit: 10, ttl: 60 * 60_000 },
           // General API
