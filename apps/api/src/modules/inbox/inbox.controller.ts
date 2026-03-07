@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Body,
   Controller,
@@ -57,7 +58,7 @@ export class InboxController {
   }
 
   @Post('webhooks/meta')
-  metaWebhook(@Req() _req: Request, @Body() body: any) {
+  metaWebhook(@Req() _req: Request, @Body() _body: any) {
     // For now: accept and log minimal
     // Later: signature verify + enqueue ingestion job
     return { ok: true };

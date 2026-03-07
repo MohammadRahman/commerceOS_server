@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // version: 2.0.0
 import {
   IsOptional,
@@ -5,7 +6,6 @@ import {
   IsUUID,
   IsInt,
   Min,
-  IsPhoneNumber,
   ValidateIf,
   IsNotEmpty,
   MaxLength,
