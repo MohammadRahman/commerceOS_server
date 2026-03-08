@@ -30,3 +30,5 @@ const RedisProvider = {
   providers: [RedisProvider],
 })
 export class HealthModule {}
+
+// postgresql://postgres:tdiRaMBrXppCznuAYTzBtTabTNtUwHle@postgres.railway.internal:5432/railway

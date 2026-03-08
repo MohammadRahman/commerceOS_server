@@ -86,8 +86,8 @@ if (process.env.DATABASE_URL && !process.env.POSTGRES_HOST) {
             statement_timeout: 30_000,
             idle_in_transaction_session_timeout: 60_000,
           },
-          ssl: isProd ? { rejectUnauthorized: true } : false,
-          logging: ['error', 'warn'] as const,
+          ssl: isProd ? { rejectUnauthorized: false } : false,
+          logging: ['error', 'warn'],
           maxQueryExecutionTime: 1000,
         };
       },
