@@ -99,7 +99,7 @@ const AppDataSource = new DataSource({
     idle_in_transaction_session_timeout: 60_000,
   },
 
-  ssl: isProd ? { rejectUnauthorized: false } : false,
+  ssl: false,
 });
 
 export default AppDataSource;
