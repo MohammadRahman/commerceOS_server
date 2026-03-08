@@ -1,12 +1,40 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { UserEntity } from '../tenancy/entities/user.entity';
+import { UserSessionEntity } from '../tenancy/entities/user-session.entity';
+import { OrganizationEntity } from '../tenancy/entities/organization.entity';
+
+const mockRepo = () => ({
+  findOne: jest.fn(),
+  save: jest.fn(),
+  create: jest.fn(),
+});
 
 describe('AuthService', () => {
   let service: AuthService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AuthService],
+      providers: [
+        AuthService,
+        {
+          provide: JwtService,
+          useValue: { sign: jest.fn(), verify: jest.fn() },
+        },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: getRepositoryToken(UserEntity), useFactory: mockRepo },
+        {
+          provide: getRepositoryToken(UserSessionEntity),
+          useFactory: mockRepo,
+        },
+        {
+          provide: getRepositoryToken(OrganizationEntity),
+          useFactory: mockRepo,
+        },
+      ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
