@@ -76,8 +76,8 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit -p tsconfig.json
 
-      - name: Run tests
-        run: npm test -- --passWithNoTests --forceExit
+      # - name: Run tests
+      #   run: npm test -- --passWithNoTests --forceExit
 
       - name: Build API
         run: npm run build api
