@@ -17,8 +17,6 @@ import { RefreshDto } from './dto/refresh.dto';
 import { Ctx } from '@app/common/utils/request-context';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RegisterDto } from './dto/register.dto';
-import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
-import { THROTTLE_AUTH } from '@app/common';
 
 @Controller('v1/auth')
 // @UseGuards(ThrottlerGuard)
