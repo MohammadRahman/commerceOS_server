@@ -17,7 +17,7 @@ echo "[entrypoint] Running database migrations..."
 # Run TypeORM migrations using the compiled data-source
 # dist/libs/common/src/database/data-source.js is the compiled output
 node node_modules/typeorm/cli.js migration:run \
-  -d dist/libs/common/src/database/data-source.js
+  -d dist/typeorm.config.js
 
 echo "[entrypoint] Migrations complete. Starting app..."
 exec "$@"
