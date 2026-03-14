@@ -26,7 +26,13 @@ async function bootstrap() {
           scriptSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'https:'],
-          connectSrc: ["'self'"],
+          connectSrc: [
+            "'self'",
+            'https://commerceos-ui.vercel.app',
+            'https://*.vercel.app', // covers preview deploys
+            'https://commerceosserver-production.up.railway.app',
+            'https://*.ingest.sentry.io', // Sentry error reporting
+          ],
           fontSrc: ["'self'"],
           objectSrc: ["'none'"],
           frameSrc: ["'none'"],
