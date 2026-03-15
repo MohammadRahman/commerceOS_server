@@ -81,7 +81,8 @@ const AppDataSource = new DataSource({
   ],
 
   // Migration discovery
-  migrations: [path.join(root, 'migrations/*.{ts,js}')],
+  // migrations: [path.join(root, 'migrations/*.{ts,js}')],
+  migrations: [path.join(__dirname, '..', 'migrations/*.{js}')],
 
   migrationsTableName: 'typeorm_migrations', // explicit, never conflicts with app tables
   migrationsTransactionMode: 'each', // each migration in its own transaction
