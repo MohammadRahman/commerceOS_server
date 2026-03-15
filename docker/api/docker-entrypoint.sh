@@ -1,5 +1,5 @@
-# v2 fixes wrong migration path and adds --transaction each for better safety
 #!/bin/sh
+# v2 fixes wrong migration path and adds --transaction each for better safety
 set -e
 echo "[entrypoint] NODE_ENV=${NODE_ENV:-production}"
 echo "[entrypoint] Running database migrations..."
