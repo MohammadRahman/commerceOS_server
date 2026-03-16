@@ -74,7 +74,9 @@ jobs:
         run: npm run lint
 
       - name: Type check
-        run: npx tsc --noEmit -p tsconfig.json --exclude 'migrations/**'
+        run: npx tsc --noEmit -p tsconfig.ci.json
+
+        # run: npx tsc --noEmit -p tsconfig.json --exclude 'migrations/**'
 
       # - name: Run tests
       #   run: npm test -- --passWithNoTests --forceExit
