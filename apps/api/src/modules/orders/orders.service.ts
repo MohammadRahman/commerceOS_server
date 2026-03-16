@@ -238,33 +238,78 @@ export class OrdersService {
    * Find customer by phone within the org.
    * If not found, create a new customer record (find-or-create).
    */
+  // private async resolveOrCreateCustomerByPhone(
+  //   orgId: string,
+  //   phone: string,
+  //   customerName?: string,
+  // ): Promise<{ customer: CustomerEntity; conversationId: undefined }> {
+  //   const existing = await this.customers.findOne({
+  //     where: { orgId, phone },
+  //   });
+
+  //   if (existing) {
+  //     // Optionally backfill name if it was missing
+  //     if (!existing.name && customerName) {
+  //       await this.customers.update(
+  //         { id: existing.id },
+  //         { name: customerName },
+  //       );
+  //       existing.name = customerName;
+  //     }
+  //     return { customer: existing, conversationId: undefined };
+  //   }
+
+  //   // Create new customer
+  //   const customer = await this.customers.save(
+  //     this.customers.create({
+  //       orgId,
+  //       phone,
+  //       name: customerName,
+  //     }),
+  //   );
+
+  //   return { customer, conversationId: undefined };
+  // }
   private async resolveOrCreateCustomerByPhone(
     orgId: string,
     phone: string,
     customerName?: string,
   ): Promise<{ customer: CustomerEntity; conversationId: undefined }> {
-    const existing = await this.customers.findOne({
+    // Normalize name for comparison — trim + lowercase
+    const normalizedName = customerName?.trim().toLowerCase();
+
+    // Find all customers with this phone in the org
+    const existing = await this.customers.find({
       where: { orgId, phone },
+      order: { createdAt: 'DESC' },
     });
 
-    if (existing) {
-      // Optionally backfill name if it was missing
-      if (!existing.name && customerName) {
-        await this.customers.update(
-          { id: existing.id },
-          { name: customerName },
-        );
-        existing.name = customerName;
+    if (existing.length > 0) {
+      if (!normalizedName) {
+        // No name provided — reuse most recent customer with this phone
+        return { customer: existing[0], conversationId: undefined };
       }
-      return { customer: existing, conversationId: undefined };
+
+      // Find one whose name matches (case-insensitive)
+      const match = existing.find(
+        (c) => c.name?.trim().toLowerCase() === normalizedName,
+      );
+
+      if (match) {
+        // Exact phone + name match — same customer
+        return { customer: match, conversationId: undefined };
+      }
+
+      // Same phone, different name — new person ordering
+      // Fall through to create a new customer record below
     }
 
-    // Create new customer
+    // Create new customer — either first time or different name
     const customer = await this.customers.save(
       this.customers.create({
         orgId,
         phone,
-        name: customerName,
+        name: customerName?.trim(),
       }),
     );
 

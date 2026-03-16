@@ -134,24 +134,6 @@ export class OnboardingController {
         },
       );
 
-      // 2. Channels — mark selected as PENDING if not yet connected
-      // if (body.channels?.selected?.length) {
-      //   for (const type of body.channels.selected) {
-      //     const existing = await queryRunner.manager.findOne(ChannelEntity, {
-      //       where: { orgId: ctx.orgId, type } as any,
-      //     });
-      //     if (!existing) {
-      //       await queryRunner.manager.save(
-      //         ChannelEntity,
-      //         queryRunner.manager.create(ChannelEntity, {
-      //           orgId: ctx.orgId,
-      //           type,
-      //           status: 'PENDING',
-      //         }),
-      //       );
-      //     }
-      //   }
-      // }
       if (body.channels?.selected?.length) {
         for (const typeStr of body.channels.selected) {
           // Cast string to ChannelType enum — unknown values are stored as-is

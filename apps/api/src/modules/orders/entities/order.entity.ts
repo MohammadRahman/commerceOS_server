@@ -1,4 +1,11 @@
-import { Column, Entity, Index, ManyToOne, OneToMany } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+} from 'typeorm';
 import { AbstractEntity } from '@app/common/database/base.entity';
 import { CustomerEntity } from '../../inbox/entities/customer.entity';
 import { ConversationEntity } from '../../inbox/entities/conversation.entity';
@@ -26,6 +33,7 @@ export class OrderEntity extends AbstractEntity<OrderEntity> {
   customerId: string;
 
   @ManyToOne(() => CustomerEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'customer_id' })
   customer: CustomerEntity;
 
   @Index()
