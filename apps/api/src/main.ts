@@ -9,10 +9,13 @@ import { PostgresExceptionFilter } from '@app/common';
 import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { SentryFilter } from './sentry.filter';
+import { VersionInterceptor } from './version.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
+  // version interceptors
+  app.useGlobalInterceptors(new VersionInterceptor());
   // ──── Sentry ───────────────────────────────────────────────────
   const { httpAdapter } = app.get(HttpAdapterHost);
   app.useGlobalFilters(new SentryFilter(httpAdapter));
