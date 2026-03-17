@@ -72,6 +72,13 @@ export class UserEntity extends AbstractEntity<UserEntity> {
     name: 'reset_password_expires_at',
   })
   resetPasswordExpiresAt?: Date;
+
+  // Stores bcrypt hash of the 4-digit OTP — raw OTP is sent via SMS only
+  @Column({ type: 'varchar', length: 200, nullable: true, name: 'otp_hash' })
+  otpHash?: string;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'otp_expires_at' })
+  otpExpiresAt?: Date;
 }
 // import { Column, Entity, Index, ManyToOne, Unique } from 'typeorm';
 // import { AbstractEntity } from '@app/common/database/base.entity';

@@ -18,9 +18,9 @@ export class EmailService {
 
   constructor(private readonly config: ConfigService) {
     this.resend = new Resend(this.config.getOrThrow<string>('RESEND_API_KEY'));
-    // e.g. "Nexlo <noreply@xenlo.app>"
+    // e.g. "Xenlo <noreply@xenlo.app>"
     this.from =
-      this.config.get<string>('EMAIL_FROM') ?? 'Nexlo <noreply@xenlo.app>';
+      this.config.get<string>('EMAIL_FROM') ?? 'Xenlo <noreply@xenlo.app>';
   }
 
   async send(options: SendEmailOptions): Promise<void> {
@@ -62,8 +62,8 @@ export class EmailService {
 
     await this.send({
       to,
-      subject: 'Reset your Nexlo password',
-      text: `Hi ${name},\n\nClick the link below to reset your password. It expires in ${expiresInMinutes} minutes.\n\n${resetUrl}\n\nIf you didn't request this, ignore this email.\n\n— Nexlo Team`,
+      subject: 'Reset your Xenlo password',
+      text: `Hi ${name},\n\nClick the link below to reset your password. It expires in ${expiresInMinutes} minutes.\n\n${resetUrl}\n\nIf you didn't request this, ignore this email.\n\n— Xenlo Team`,
       html: passwordResetHtml({ name, resetUrl, expiresInMinutes }),
     });
   }
@@ -94,7 +94,7 @@ function passwordResetHtml(params: {
           <!-- Header -->
           <tr>
             <td style="background:#18181b;padding:24px 32px;">
-              <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;">Nexlo</span>
+              <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;">Xenlo</span>
             </td>
           </tr>
 
@@ -132,7 +132,7 @@ function passwordResetHtml(params: {
           <tr>
             <td style="padding:16px 32px;background:#fafafa;border-top:1px solid #e4e4e7;">
               <p style="margin:0;font-size:11px;color:#a1a1aa;">
-                © ${new Date().getFullYear()} Nexlo · xenlo.app
+                © ${new Date().getFullYear()} Xenlo · xenlo.app
               </p>
             </td>
           </tr>
