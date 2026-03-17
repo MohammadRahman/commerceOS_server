@@ -31,6 +31,7 @@ async function bootstrap() {
           imgSrc: ["'self'", 'data:', 'https:'],
           connectSrc: [
             "'self'",
+            'https://commerceos.xenlo.app',
             'https://commerceos-ui.vercel.app',
             'https://*.vercel.app', // covers preview deploys
             'https://commerceosserver-production.up.railway.app',

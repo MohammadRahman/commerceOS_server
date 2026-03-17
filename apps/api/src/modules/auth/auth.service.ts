@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+// v2 with reset password flow and transactional email templates
+// apps/api/src/modules/auth/auth.service.ts
+// v2 — adds forgotPassword + resetPassword (magic link flow)
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
@@ -11,20 +15,28 @@ import { ConfigService } from '@nestjs/config';
 import { Repository, DeepPartial } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 
 import { UserEntity, UserRole } from '../tenancy/entities/user.entity';
 import { UserSessionEntity } from '../tenancy/entities/user-session.entity';
 import { OrganizationEntity } from '../tenancy/entities/organization.entity';
 import { JwtAccessPayload, JwtRefreshPayload } from '@app/common/types/auth';
 import { RegisterDto } from './dto/register.dto';
+import { EmailService } from '../notifications/services/email.service';
+import { SmsService } from '../notifications/services/sms.service';
+
+// Token expires in 60 minutes
+const RESET_EXPIRES_MINUTES = 60;
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger();
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
+    private readonly sms: SmsService,
     @InjectRepository(UserEntity)
     private readonly users: Repository<UserEntity>,
     @InjectRepository(UserSessionEntity)
@@ -41,31 +53,32 @@ export class AuthService {
     return Number(this.config.getOrThrow<string>('JWT_REFRESH_TTL_SECONDS'));
   }
 
+  // ─── Register ─────────────────────────────────────────────────────────────
+
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
 
     const existing = await this.users.findOne({ where: { email } });
     if (existing) throw new BadRequestException('Email already registered');
 
-    // Create org (force SINGLE entity overload)
     const orgCreate: DeepPartial<OrganizationEntity> = {
       name: dto.businessName,
       plan: 'FREE',
     };
     const org = await this.orgRepo.save(this.orgRepo.create(orgCreate));
-    // Create user (force SINGLE entity overload)
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
     const userCreate: DeepPartial<UserEntity> = {
       orgId: org.id,
       email,
       passwordHash,
+      phone: dto.phone,
       role: UserRole.OWNER,
       isActive: true,
     };
     const user = await this.users.save(this.users.create(userCreate));
-    console.log('user', user);
-    // Session + tokens
+
     const sessionId = randomUUID();
 
     const accessPayload: JwtAccessPayload = {
@@ -101,8 +114,6 @@ export class AuthService {
       orgId: user.orgId,
       userId: user.id,
       refreshTokenHash,
-      userAgent: undefined,
-      ip: undefined,
       lastUsedAt: new Date(),
     };
 
@@ -117,11 +128,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
       },
-      organization: {
-        id: org.id,
-        name: org.name,
-        plan: org.plan,
-      },
+      organization: { id: org.id, name: org.name, plan: org.plan },
       received: {
         ownerName: dto.ownerName,
         phone: dto.phone,
@@ -129,6 +136,8 @@ export class AuthService {
       },
     };
   }
+
+  // ─── Login ────────────────────────────────────────────────────────────────
 
   async login(params: {
     email: string;
@@ -151,26 +160,19 @@ export class AuthService {
         where: { email, isActive: true },
         take: 2,
       });
-      console.log('matches', matches);
-
       if (matches.length === 0)
         throw new UnauthorizedException('Invalid credentials');
-
-      if (matches.length > 1) {
+      if (matches.length > 1)
         throw new BadRequestException(
-          'Multiple organizations found for this email. Provide orgId.',
+          'Multiple organizations found. Provide orgId.',
         );
-      }
-
       user = matches[0];
-      console.log('user', user);
     }
 
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok)
-      throw new UnauthorizedException('password does not match credentials');
+    if (!ok) throw new UnauthorizedException('Invalid credentials');
 
     const sessionId = randomUUID();
 
@@ -181,7 +183,6 @@ export class AuthService {
       jti: randomUUID(),
       typ: 'access',
     };
-
     const refreshPayload: JwtRefreshPayload = {
       sub: user.id,
       orgId: user.orgId,
@@ -194,7 +195,6 @@ export class AuthService {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
       expiresIn: this.accessTtlSeconds(),
     });
-
     const refreshToken = await this.jwt.signAsync(refreshPayload, {
       secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
       expiresIn: this.refreshTtlSeconds(),
@@ -225,6 +225,8 @@ export class AuthService {
       },
     };
   }
+
+  // ─── Refresh ──────────────────────────────────────────────────────────────
 
   async refresh(params: {
     refreshToken: string;
@@ -266,7 +268,6 @@ export class AuthService {
       jti: randomUUID(),
       typ: 'access',
     };
-
     const newRefreshPayload: JwtRefreshPayload = {
       sub: user.id,
       orgId: user.orgId,
@@ -279,7 +280,6 @@ export class AuthService {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
       expiresIn: this.accessTtlSeconds(),
     });
-
     const newRefreshToken = await this.jwt.signAsync(newRefreshPayload, {
       secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
       expiresIn: this.refreshTtlSeconds(),
@@ -294,9 +294,10 @@ export class AuthService {
     return { accessToken, refreshToken: newRefreshToken };
   }
 
+  // ─── Logout ───────────────────────────────────────────────────────────────
+
   async logout(params: { orgId: string; userId: string; sessionId?: string }) {
     const { orgId, userId, sessionId } = params;
-
     if (sessionId) {
       await this.sessions.update(
         { id: sessionId, orgId, userId },
@@ -304,19 +305,17 @@ export class AuthService {
       );
       return;
     }
-
     await this.sessions.update(
       { orgId, userId, revokedAt: null as any },
       { revokedAt: new Date() },
     );
   }
+
+  // ─── Me ───────────────────────────────────────────────────────────────────
+
   async me(ctx: { userId: string; orgId: string }) {
-    const user = await this.users.findOne({
-      where: { id: ctx.userId } as any,
-    });
-
+    const user = await this.users.findOne({ where: { id: ctx.userId } as any });
     if (!user) throw new NotFoundException('User not found');
-
     return {
       user: {
         id: user.id,
@@ -327,4 +326,500 @@ export class AuthService {
       },
     };
   }
+
+  // ─── Forgot Password ──────────────────────────────────────────────────────
+  //
+  // Flow:
+  //   1. User submits email
+  //   2. We generate a cryptographically secure random token (32 bytes)
+  //   3. Store sha256(token) in DB with 60-min expiry
+  //   4. Send magic link containing raw token via email + SMS
+  //   5. Return generic success regardless of whether email exists
+  //      (prevents user enumeration)
+
+  async forgotPassword(email: string): Promise<void> {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await this.users.findOne({
+      where: { email: normalizedEmail, isActive: true },
+    });
+
+    // Always return success — never reveal if email exists (security best practice)
+    if (!user) {
+      this.logger.log(
+        `[Auth] Forgot password: email not found (${normalizedEmail}) — silent return`,
+      );
+      return;
+    }
+
+    // Generate raw token and store its hash
+    const rawToken = randomBytes(32).toString('hex'); // 64-char hex
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + RESET_EXPIRES_MINUTES * 60 * 1000);
+
+    await this.users.update(
+      { id: user.id },
+      { resetPasswordToken: tokenHash, resetPasswordExpiresAt: expiresAt },
+    );
+
+    // Build magic link
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'https://commerceos.xenlo.app';
+    const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(normalizedEmail)}`;
+
+    const displayName = user.name ?? normalizedEmail.split('@')[0];
+
+    // Send email (primary channel)
+    try {
+      await this.email.sendPasswordResetLink({
+        to: normalizedEmail,
+        name: displayName,
+        resetUrl,
+        expiresInMinutes: RESET_EXPIRES_MINUTES,
+      });
+    } catch (err) {
+      this.logger.error('[Auth] Failed to send reset email', err);
+      // Don't throw — SMS may still work
+    }
+
+    // Send SMS (secondary channel) — non-fatal if no phone
+    if (user.phone) {
+      try {
+        await this.sms.sendPasswordResetLink({
+          to: user.phone,
+          name: displayName,
+          resetUrl,
+          expiresInMinutes: RESET_EXPIRES_MINUTES,
+        });
+      } catch (err) {
+        this.logger.error('[Auth] Failed to send reset SMS', err);
+      }
+    }
+  }
+
+  // ─── Reset Password ───────────────────────────────────────────────────────
+  //
+  // Flow:
+  //   1. User arrives at /reset-password?token=xxx&email=yyy
+  //   2. We sha256(token) and look it up in DB
+  //   3. Verify not expired
+  //   4. Hash new password and clear reset fields
+  //   5. Revoke all existing sessions (force re-login everywhere)
+
+  async resetPassword(params: {
+    email: string;
+    token: string;
+    newPassword: string;
+  }): Promise<void> {
+    const { email, token, newPassword } = params;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    const user = await this.users.findOne({
+      where: { email: normalizedEmail, resetPasswordToken: tokenHash },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired reset link');
+    }
+
+    if (
+      !user.resetPasswordExpiresAt ||
+      user.resetPasswordExpiresAt < new Date()
+    ) {
+      // Clear stale token
+      await this.users.update(
+        { id: user.id },
+        {
+          resetPasswordToken: undefined,
+          resetPasswordExpiresAt: undefined,
+        },
+      );
+      throw new BadRequestException(
+        'Reset link has expired. Please request a new one.',
+      );
+    }
+
+    if (newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    // Update password and clear reset fields atomically
+    await this.users.update(
+      { id: user.id },
+      {
+        passwordHash,
+        resetPasswordToken: undefined,
+        resetPasswordExpiresAt: undefined,
+      },
+    );
+
+    // Revoke all sessions — user must log in again with new password
+    await this.sessions.update(
+      { orgId: user.orgId, userId: user.id, revokedAt: null as any },
+      { revokedAt: new Date() },
+    );
+
+    this.logger.log(`[Auth] Password reset successful for ${normalizedEmail}`);
+  }
+
+  // ─── Verify Reset Token ───────────────────────────────────────────────────
+  // Called when user lands on /reset-password page to validate the token
+  // before showing the new password form.
+
+  async verifyResetToken(params: {
+    email: string;
+    token: string;
+  }): Promise<{ valid: boolean }> {
+    const { email, token } = params;
+    const normalizedEmail = email.trim().toLowerCase();
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    const user = await this.users.findOne({
+      where: { email: normalizedEmail, resetPasswordToken: tokenHash },
+    });
+
+    if (
+      !user ||
+      !user.resetPasswordExpiresAt ||
+      user.resetPasswordExpiresAt < new Date()
+    ) {
+      return { valid: false };
+    }
+
+    return { valid: true };
+  }
 }
+// /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+// import {
+//   Injectable,
+//   UnauthorizedException,
+//   BadRequestException,
+//   Logger,
+//   NotFoundException,
+// } from '@nestjs/common';
+// import { JwtService } from '@nestjs/jwt';
+// import { ConfigService } from '@nestjs/config';
+// import { Repository, DeepPartial } from 'typeorm';
+// import { InjectRepository } from '@nestjs/typeorm';
+// import * as bcrypt from 'bcrypt';
+// import { randomUUID } from 'crypto';
+
+// import { UserEntity, UserRole } from '../tenancy/entities/user.entity';
+// import { UserSessionEntity } from '../tenancy/entities/user-session.entity';
+// import { OrganizationEntity } from '../tenancy/entities/organization.entity';
+// import { JwtAccessPayload, JwtRefreshPayload } from '@app/common/types/auth';
+// import { RegisterDto } from './dto/register.dto';
+
+// @Injectable()
+// export class AuthService {
+//   private readonly logger = new Logger();
+//   constructor(
+//     private readonly jwt: JwtService,
+//     private readonly config: ConfigService,
+//     @InjectRepository(UserEntity)
+//     private readonly users: Repository<UserEntity>,
+//     @InjectRepository(UserSessionEntity)
+//     private readonly sessions: Repository<UserSessionEntity>,
+//     @InjectRepository(OrganizationEntity)
+//     private readonly orgRepo: Repository<OrganizationEntity>,
+//   ) {}
+
+//   private accessTtlSeconds() {
+//     return Number(this.config.getOrThrow<string>('JWT_ACCESS_TTL_SECONDS'));
+//   }
+
+//   private refreshTtlSeconds() {
+//     return Number(this.config.getOrThrow<string>('JWT_REFRESH_TTL_SECONDS'));
+//   }
+
+//   async register(dto: RegisterDto) {
+//     const email = dto.email.trim().toLowerCase();
+
+//     const existing = await this.users.findOne({ where: { email } });
+//     if (existing) throw new BadRequestException('Email already registered');
+
+//     // Create org (force SINGLE entity overload)
+//     const orgCreate: DeepPartial<OrganizationEntity> = {
+//       name: dto.businessName,
+//       plan: 'FREE',
+//     };
+//     const org = await this.orgRepo.save(this.orgRepo.create(orgCreate));
+//     // Create user (force SINGLE entity overload)
+//     const passwordHash = await bcrypt.hash(dto.password, 12);
+
+//     const userCreate: DeepPartial<UserEntity> = {
+//       orgId: org.id,
+//       email,
+//       passwordHash,
+//       role: UserRole.OWNER,
+//       isActive: true,
+//     };
+//     const user = await this.users.save(this.users.create(userCreate));
+//     console.log('user', user);
+//     // Session + tokens
+//     const sessionId = randomUUID();
+
+//     const accessPayload: JwtAccessPayload = {
+//       sub: user.id,
+//       orgId: user.orgId,
+//       role: user.role,
+//       jti: randomUUID(),
+//       typ: 'access',
+//     };
+
+//     const refreshPayload: JwtRefreshPayload = {
+//       sub: user.id,
+//       orgId: user.orgId,
+//       sid: sessionId,
+//       jti: randomUUID(),
+//       typ: 'refresh',
+//     };
+
+//     const accessToken = await this.jwt.signAsync(accessPayload, {
+//       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+//       expiresIn: this.accessTtlSeconds(),
+//     });
+
+//     const refreshToken = await this.jwt.signAsync(refreshPayload, {
+//       secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+//       expiresIn: this.refreshTtlSeconds(),
+//     });
+
+//     const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+
+//     const sessionCreate: DeepPartial<UserSessionEntity> = {
+//       id: sessionId,
+//       orgId: user.orgId,
+//       userId: user.id,
+//       refreshTokenHash,
+//       userAgent: undefined,
+//       ip: undefined,
+//       lastUsedAt: new Date(),
+//     };
+
+//     await this.sessions.save(this.sessions.create(sessionCreate));
+
+//     return {
+//       accessToken,
+//       refreshToken,
+//       user: {
+//         id: user.id,
+//         orgId: user.orgId,
+//         email: user.email,
+//         role: user.role,
+//       },
+//       organization: {
+//         id: org.id,
+//         name: org.name,
+//         plan: org.plan,
+//       },
+//       received: {
+//         ownerName: dto.ownerName,
+//         phone: dto.phone,
+//         mainChannel: dto.mainChannel ?? null,
+//       },
+//     };
+//   }
+
+//   async login(params: {
+//     email: string;
+//     password: string;
+//     orgId?: string;
+//     userAgent?: string;
+//     ip?: string;
+//   }) {
+//     const email = params.email.trim().toLowerCase();
+//     const { password, orgId, userAgent, ip } = params;
+
+//     let user: UserEntity | null = null;
+
+//     if (orgId) {
+//       user = await this.users.findOne({
+//         where: { orgId, email, isActive: true },
+//       });
+//     } else {
+//       const matches = await this.users.find({
+//         where: { email, isActive: true },
+//         take: 2,
+//       });
+//       console.log('matches', matches);
+
+//       if (matches.length === 0)
+//         throw new UnauthorizedException('Invalid credentials');
+
+//       if (matches.length > 1) {
+//         throw new BadRequestException(
+//           'Multiple organizations found for this email. Provide orgId.',
+//         );
+//       }
+
+//       user = matches[0];
+//       console.log('user', user);
+//     }
+
+//     if (!user) throw new UnauthorizedException('Invalid credentials');
+
+//     const ok = await bcrypt.compare(password, user.passwordHash);
+//     if (!ok)
+//       throw new UnauthorizedException('password does not match credentials');
+
+//     const sessionId = randomUUID();
+
+//     const accessPayload: JwtAccessPayload = {
+//       sub: user.id,
+//       orgId: user.orgId,
+//       role: user.role,
+//       jti: randomUUID(),
+//       typ: 'access',
+//     };
+
+//     const refreshPayload: JwtRefreshPayload = {
+//       sub: user.id,
+//       orgId: user.orgId,
+//       sid: sessionId,
+//       jti: randomUUID(),
+//       typ: 'refresh',
+//     };
+
+//     const accessToken = await this.jwt.signAsync(accessPayload, {
+//       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+//       expiresIn: this.accessTtlSeconds(),
+//     });
+
+//     const refreshToken = await this.jwt.signAsync(refreshPayload, {
+//       secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+//       expiresIn: this.refreshTtlSeconds(),
+//     });
+
+//     const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+
+//     await this.sessions.save(
+//       this.sessions.create({
+//         id: sessionId,
+//         orgId: user.orgId,
+//         userId: user.id,
+//         refreshTokenHash,
+//         userAgent,
+//         ip,
+//         lastUsedAt: new Date(),
+//       } satisfies DeepPartial<UserSessionEntity>),
+//     );
+
+//     return {
+//       accessToken,
+//       refreshToken,
+//       user: {
+//         id: user.id,
+//         orgId: user.orgId,
+//         email: user.email,
+//         role: user.role,
+//       },
+//     };
+//   }
+
+//   async refresh(params: {
+//     refreshToken: string;
+//     userAgent?: string;
+//     ip?: string;
+//   }) {
+//     const { refreshToken, userAgent, ip } = params;
+
+//     let payload: JwtRefreshPayload;
+//     try {
+//       payload = await this.jwt.verifyAsync<JwtRefreshPayload>(refreshToken, {
+//         secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+//       });
+//     } catch {
+//       throw new UnauthorizedException('Invalid refresh token');
+//     }
+
+//     if (payload.typ !== 'refresh')
+//       throw new UnauthorizedException('Invalid refresh token');
+
+//     const session = await this.sessions.findOne({
+//       where: { id: payload.sid, orgId: payload.orgId, userId: payload.sub },
+//     });
+//     if (!session || session.revokedAt)
+//       throw new UnauthorizedException('Session revoked');
+
+//     const match = await bcrypt.compare(refreshToken, session.refreshTokenHash);
+//     if (!match) throw new UnauthorizedException('Invalid refresh token');
+
+//     const user = await this.users.findOne({
+//       where: { id: payload.sub, orgId: payload.orgId, isActive: true },
+//     });
+//     if (!user) throw new UnauthorizedException('User disabled');
+
+//     const newAccessPayload: JwtAccessPayload = {
+//       sub: user.id,
+//       orgId: user.orgId,
+//       role: user.role,
+//       jti: randomUUID(),
+//       typ: 'access',
+//     };
+
+//     const newRefreshPayload: JwtRefreshPayload = {
+//       sub: user.id,
+//       orgId: user.orgId,
+//       sid: session.id,
+//       jti: randomUUID(),
+//       typ: 'refresh',
+//     };
+
+//     const accessToken = await this.jwt.signAsync(newAccessPayload, {
+//       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+//       expiresIn: this.accessTtlSeconds(),
+//     });
+
+//     const newRefreshToken = await this.jwt.signAsync(newRefreshPayload, {
+//       secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+//       expiresIn: this.refreshTtlSeconds(),
+//     });
+
+//     const newHash = await bcrypt.hash(newRefreshToken, 12);
+//     await this.sessions.update(
+//       { id: session.id },
+//       { refreshTokenHash: newHash, lastUsedAt: new Date(), userAgent, ip },
+//     );
+
+//     return { accessToken, refreshToken: newRefreshToken };
+//   }
+
+//   async logout(params: { orgId: string; userId: string; sessionId?: string }) {
+//     const { orgId, userId, sessionId } = params;
+
+//     if (sessionId) {
+//       await this.sessions.update(
+//         { id: sessionId, orgId, userId },
+//         { revokedAt: new Date() },
+//       );
+//       return;
+//     }
+
+//     await this.sessions.update(
+//       { orgId, userId, revokedAt: null as any },
+//       { revokedAt: new Date() },
+//     );
+//   }
+//   async me(ctx: { userId: string; orgId: string }) {
+//     const user = await this.users.findOne({
+//       where: { id: ctx.userId } as any,
+//     });
+
+//     if (!user) throw new NotFoundException('User not found');
+
+//     return {
+//       user: {
+//         id: user.id,
+//         email: user.email,
+//         name: user.name,
+//         role: user.role,
+//         orgId: user.orgId,
+//       },
+//     };
+//   }
+// }

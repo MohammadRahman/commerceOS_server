@@ -12,6 +12,7 @@ import { UserSessionEntity } from '../tenancy/entities/user-session.entity';
 import { JwtStrategy } from './strategy/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { OrganizationEntity } from '../tenancy/entities/organization.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { OrganizationEntity } from '../tenancy/entities/organization.entity';
       UserSessionEntity,
       OrganizationEntity,
     ]),
+    NotificationsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

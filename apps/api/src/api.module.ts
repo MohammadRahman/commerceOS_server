@@ -19,6 +19,7 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
 import { WhatsappModule } from './integrations/whatsapp/whatsapp.module';
 import { AppLoggerModule } from '@app/common';
 import { HealthModule } from './modules/health/health.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { HealthModule } from './modules/health/health.module';
     ProvidersModule,
     WhatsappModule,
     HealthModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}
