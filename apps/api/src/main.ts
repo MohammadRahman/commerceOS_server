@@ -112,30 +112,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-
-/**
- * migration scripts 
- *     "migration:generate": "npm run typeorm -- migration:generate",
-    "migration:run": "npm run typeorm -- migration:run",
-    "migration:revert": "npm run typeorm -- migration:revert",
- * */
-
-/**
- * From toml config
- * # railway.toml
-# Railway project configuration
-# Docs: https://docs.railway.app/reference/config-as-code
-
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
-
-[deploy]
-startCommand = "node dist/apps/api/main"
-healthcheckPath = "/health/live"
-healthcheckTimeout = 60
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
-
-# Railway injects PORT automatically — your main.ts already reads process.env.PORT
- * */

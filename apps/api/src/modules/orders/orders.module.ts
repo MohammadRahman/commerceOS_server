@@ -7,6 +7,8 @@ import { CustomerEntity } from '../inbox/entities/customer.entity';
 import { CustomerIdentityEntity } from '../inbox/entities/customer-identity.entity';
 import { OrderEventEntity } from './entities/order-event.entity';
 import { OrderEntity } from './entities/order.entity';
+import { BulkOrdersController } from './bulk-orders.controller';
+import { BulkOrdersService } from './bulk-orders.service';
 
 @Module({
   imports: [
@@ -18,8 +20,8 @@ import { OrderEntity } from './entities/order.entity';
       ConversationEntity,
     ]),
   ],
-  controllers: [OrdersController],
-  providers: [OrdersService],
+  controllers: [OrdersController, BulkOrdersController],
+  providers: [OrdersService, BulkOrdersService],
 })
 export class OrdersModule {}
 // import { Module } from '@nestjs/common';

@@ -14,7 +14,12 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({
-  cors: { origin: 'http://localhost:8080', credentials: true },
+  cors: {
+    origin: process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()) ?? [
+      'http://localhost:8080',
+    ],
+    credentials: true,
+  },
   namespace: '/inbox',
 })
 export class InboxGateway implements OnGatewayConnection, OnGatewayDisconnect {
