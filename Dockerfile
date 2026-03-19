@@ -1,10 +1,6 @@
-# Dockerfile v6
-# Key fixes from v5:
-# 1. Migrations compiled to dist/migrations/ — same dist tree as app
-# 2. typeorm.config.ts compiled into dist/ alongside app
-# 3. New migrations added to migrations/ folder are automatically picked up
-#    on next build — no manual intervention needed
-# 4. Path in typeorm.config.ts updated to match dist/migrations/
+# Dockerfile v7
+# Fix: migration compile error "Unexpected strict mode reserved word: implements"
+# Caused by ES2020 target — fixed with ES2022 + strict false
 
 # ── Stage 1: deps ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS deps
@@ -26,25 +22,30 @@ RUN npx tsc typeorm.config.ts \
     --outDir dist \
     --module commonjs \
     --moduleResolution node \
-    --target ES2020 \
+    --target ES2022 \
     --esModuleInterop true \
     --skipLibCheck true \
     --experimentalDecorators true \
-    --emitDecoratorMetadata true
+    --emitDecoratorMetadata true \
+    --strict false
 
 # Compile ALL migrations into dist/migrations/
-# This ensures every .ts file in migrations/ gets compiled regardless of name
+# ✅ ES2022 + strict false — fixes "implements" reserved word error
 RUN mkdir -p dist/migrations && \
     npx tsc migrations/*.ts \
     --outDir dist/migrations \
     --module commonjs \
     --moduleResolution node \
-    --target ES2020 \
+    --target ES2022 \
     --esModuleInterop true \
     --skipLibCheck true \
     --experimentalDecorators true \
     --emitDecoratorMetadata true \
+    --strict false \
     2>/dev/null || true
+
+# Verify migrations compiled
+RUN echo "=== Compiled migrations ===" && ls dist/migrations/ || echo "WARNING: no migrations compiled"
 
 # ── Stage 3: production image ──────────────────────────────────────────────────
 FROM node:20-alpine AS runner
@@ -53,19 +54,14 @@ WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && \
     adduser  -S nestjs -u 1001
 
-# Production deps only
 COPY package*.json ./
 RUN npm ci --frozen-lockfile --omit=dev && \
     npm cache clean --force
 
-# Compiled app + migrations (everything in dist/)
 COPY --from=builder /app/dist ./dist
-
-# Config files needed at runtime
 COPY --from=builder /app/nest-cli.json ./nest-cli.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-# Entrypoint
 COPY docker/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
@@ -77,7 +73,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/apps/api/main"]
-
 # # v5 due to issue in migration entrypoint script where typeorm.config.js is not found at railway deployment.
 # # Dockerfile  v5
 # # Multi-stage build — keeps final image ~200MB

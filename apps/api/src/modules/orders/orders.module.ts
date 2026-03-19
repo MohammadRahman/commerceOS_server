@@ -20,8 +20,8 @@ import { BulkOrdersService } from './bulk-orders.service';
       ConversationEntity,
     ]),
   ],
-  controllers: [OrdersController, BulkOrdersController],
-  providers: [OrdersService, BulkOrdersService],
+  controllers: [BulkOrdersController, OrdersController],
+  providers: [BulkOrdersService, OrdersService],
 })
 export class OrdersModule {}
 // import { Module } from '@nestjs/common';
