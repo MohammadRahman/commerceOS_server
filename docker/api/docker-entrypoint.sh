@@ -1,15 +1,34 @@
 #!/bin/sh
-# v2 fixes wrong migration path and adds --transaction each for better safety
+# docker/api/docker-entrypoint.sh — v3
+# Fixes: added debug logging so you can see exactly which migrations run
 set -e
+
 echo "[entrypoint] NODE_ENV=${NODE_ENV:-production}"
+echo "[entrypoint] Checking migration files..."
+
+# List what migrations are available — helps debug missing migrations
+ls -la dist/migrations/ 2>/dev/null || echo "[entrypoint] WARNING: dist/migrations/ not found"
+
 echo "[entrypoint] Running database migrations..."
 
 node node_modules/typeorm/cli.js migration:run \
-  -d dist/typeorm.config.js \
-  --transaction each
+-d dist/typeorm.config.js \
+--transaction each
 
 echo "[entrypoint] Migrations complete. Starting app..."
 exec "$@"
+# #!/bin/sh
+# # v2 fixes wrong migration path and adds --transaction each for better safety
+# set -e
+# echo "[entrypoint] NODE_ENV=${NODE_ENV:-production}"
+# echo "[entrypoint] Running database migrations..."
+
+# node node_modules/typeorm/cli.js migration:run \
+#   -d dist/typeorm.config.js \
+#   --transaction each
+
+# echo "[entrypoint] Migrations complete. Starting app..."
+# exec "$@"
 # v1 has wrong migration path
 # #!/bin/sh
 # # docker/api/docker-entrypoint.sh

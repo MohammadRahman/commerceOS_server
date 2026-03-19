@@ -31,6 +31,9 @@ export class ChannelEntity extends AbstractEntity<ChannelEntity> {
   @Column({ type: 'varchar', length: 100, name: 'page_id', nullable: true })
   pageId?: string;
 
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  name?: string;
+
   @Column({
     type: 'varchar',
     length: 100,
