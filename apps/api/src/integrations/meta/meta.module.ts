@@ -13,6 +13,8 @@ import { InboxController } from './controllers/inbox.controller';
 import { InboxService } from './services/inbox.service';
 import { InboxGateway } from './gateway/inbox.gateway';
 import { JwtModule } from '@nestjs/jwt';
+import { CustomerIdentityEntity } from '../../modules/inbox/entities/customer-identity.entity';
+import { CustomerEntity } from '../../modules/inbox/entities/customer.entity';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { JwtModule } from '@nestjs/jwt';
       ChannelEntity,
       ConversationEntity,
       MessageEntity,
+      CustomerEntity,
+      CustomerIdentityEntity,
     ]),
   ],
   controllers: [MetaController, MetaOAuthController, InboxController],
