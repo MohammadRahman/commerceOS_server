@@ -17,15 +17,6 @@ export class FixCustomerIdentityFkColumns1774124834445 implements MigrationInter
       `ALTER TABLE "customer_identities" DROP COLUMN "channelId"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "payment_provider_catalog" ALTER COLUMN "supported_countries" SET DEFAULT ARRAY['BD']::text[]`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "courier_provider_catalog" ALTER COLUMN "supported_countries" SET DEFAULT ARRAY['BD']::text[]`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_ee6419219542371563e0592db5" ON "users" ("reset_password_token") `,
-    );
-    await queryRunner.query(
       `ALTER TABLE "customer_identities" ADD CONSTRAINT "FK_f029c64f58346eb3bb3d760a97e" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
@@ -46,16 +37,7 @@ export class FixCustomerIdentityFkColumns1774124834445 implements MigrationInter
     await queryRunner.query(
       `ALTER TABLE "customer_identities" DROP CONSTRAINT "FK_f029c64f58346eb3bb3d760a97e"`,
     );
-    await queryRunner.query(
-      `DROP INDEX "public"."IDX_ee6419219542371563e0592db5"`,
-    );
     // ✅ Fixed: restored missing ]::text[] closing
-    await queryRunner.query(
-      `ALTER TABLE "courier_provider_catalog" ALTER COLUMN "supported_countries" SET DEFAULT ARRAY['BD']::text[]`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "payment_provider_catalog" ALTER COLUMN "supported_countries" SET DEFAULT ARRAY['BD']::text[]`,
-    );
     await queryRunner.query(
       `ALTER TABLE "customer_identities" ADD "channelId" uuid`,
     );
