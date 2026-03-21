@@ -19,8 +19,8 @@ import { MetaModule } from '../../integrations/meta/meta.module';
       CustomerEntity,
       CustomerIdentityEntity, // needed for inbox flow customer resolution
       ConversationEntity,
-      MetaModule,
     ]),
+    MetaModule,
   ],
   controllers: [BulkOrdersController, OrdersController],
   providers: [BulkOrdersService, OrdersService],
