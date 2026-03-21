@@ -52,67 +52,6 @@ export class InboxService {
     }
   }
 
-  // async sendMessage(orgId: string, conversationId: string, text: string) {
-  //   // 1 — Verify conversation belongs to org
-  //   const convo = await this.conversations.findOne({
-  //     where: { id: conversationId, orgId } as any,
-  //     relations: ['channel'],
-  //   });
-  //   if (!convo) throw new NotFoundException('Conversation not found');
-  //   if (!convo.channel)
-  //     throw new BadRequestException('No channel on conversation');
-
-  //   // 2 — Decrypt page token
-  //   const pageToken = this.decrypt(convo.channel.accessTokenEnc);
-
-  //   // 3 — Send via Meta Graph API
-  //   await firstValueFrom(
-  //     this.http.post(
-  //       `https://graph.facebook.com/v19.0/me/messages`,
-  //       {
-  //         recipient: { id: convo.externalUserId },
-  //         message: { text },
-  //         messaging_type: 'RESPONSE',
-  //       },
-  //       { params: { access_token: pageToken } },
-  //     ),
-  //   );
-
-  //   // 4 — Save to DB
-  //   const msg = await this.messages.save(
-  //     this.messages.create({
-  //       orgId,
-  //       conversationId,
-  //       direction: MessageDirection.OUT,
-  //       messageType: 'TEXT',
-  //       text,
-  //       occurredAt: new Date(),
-  //     }),
-  //   );
-
-  //   // 5 — Update conversation lastMessageAt
-  //   await this.conversations.update(
-  //     { id: conversationId },
-  //     { lastMessageAt: msg.occurredAt },
-  //   );
-
-  //   // 6 — Push real-time event // commenting it out otherwise it'll also send an extra copy when sent message
-  //   this.gateway.emitNewMessage(orgId, {
-  //     conversationId,
-  //     message: {
-  //       id: msg.id,
-  //       direction: 'OUT',
-  //       messageType: 'TEXT',
-  //       text: msg.text,
-  //       occurredAt: msg.occurredAt,
-  //       createdAt: msg.createdAt,
-  //     },
-  //     conversation: { id: conversationId, lastMessageAt: msg.occurredAt },
-  //   });
-
-  //   return { id: msg.id, text: msg.text, occurredAt: msg.occurredAt };
-  // }
-
   private decrypt(enc: string): string {
     const key = this.config.getOrThrow<string>('META_OAUTH_STATE_SECRET');
     const buf = Buffer.from(enc, 'base64');
