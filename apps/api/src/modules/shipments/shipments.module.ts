@@ -11,6 +11,7 @@ import { HttpModule } from '@nestjs/axios';
 import { OrgCourierProviderEntity } from '../providers/entities/org-courier-provider.entity';
 import { SteadfastProvider } from '@app/common/couriers/steadfast.provider';
 import { PathaoProvider } from '@app/common/couriers/pathao.provider';
+import { MetaModule } from '../../integrations/meta/meta.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PathaoProvider } from '@app/common/couriers/pathao.provider';
     OutboxModule,
     IdempotencyModule,
     HttpModule,
+    MetaModule,
   ],
   controllers: [ShipmentsController],
   providers: [

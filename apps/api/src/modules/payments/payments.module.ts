@@ -10,6 +10,7 @@ import { OrgPaymentProviderEntity } from '../providers/entities/org-payment-prov
 import { UploadModule } from '@app/common/upload';
 import { PaymentsController } from './Payments.controller.v2';
 import { PaymentsService } from './Payments.service.v2';
+import { MetaModule } from '../../integrations/meta/meta.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PaymentsService } from './Payments.service.v2';
       OrderEntity,
       OrderEventEntity,
       OrgPaymentProviderEntity,
+      MetaModule,
     ]),
     OutboxModule,
     IdempotencyModule,

@@ -9,6 +9,7 @@ import { OrderEventEntity } from './entities/order-event.entity';
 import { OrderEntity } from './entities/order.entity';
 import { BulkOrdersController } from './bulk-orders.controller';
 import { BulkOrdersService } from './bulk-orders.service';
+import { MetaModule } from '../../integrations/meta/meta.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { BulkOrdersService } from './bulk-orders.service';
       CustomerEntity,
       CustomerIdentityEntity, // needed for inbox flow customer resolution
       ConversationEntity,
+      MetaModule,
     ]),
   ],
   controllers: [BulkOrdersController, OrdersController],

@@ -15,6 +15,7 @@ import { InboxGateway } from './gateway/inbox.gateway';
 import { JwtModule } from '@nestjs/jwt';
 import { CustomerIdentityEntity } from '../../modules/inbox/entities/customer-identity.entity';
 import { CustomerEntity } from '../../modules/inbox/entities/customer.entity';
+import { AutoMessageService } from './services/auto-message.service';
 
 @Module({
   imports: [
@@ -31,7 +32,13 @@ import { CustomerEntity } from '../../modules/inbox/entities/customer.entity';
     ]),
   ],
   controllers: [MetaController, MetaOAuthController, InboxController],
-  providers: [MetaService, MetaOAuthService, InboxService, InboxGateway],
-  exports: [InboxGateway, InboxService],
+  providers: [
+    MetaService,
+    MetaOAuthService,
+    InboxService,
+    InboxGateway,
+    AutoMessageService,
+  ],
+  exports: [InboxGateway, InboxService, AutoMessageService],
 })
 export class MetaModule {}

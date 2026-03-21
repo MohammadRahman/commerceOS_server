@@ -15,6 +15,7 @@ import { OrderEventEntity } from '../orders/entities/order-event.entity';
 import { OrgPaymentProviderEntity } from '../providers/entities/org-payment-provider.entity';
 import { IdempotencyService, OutboxService } from '@app/common';
 import { PaymentLinkStatus } from './enums/payment-link.enum';
+import { AutoMessageService } from '../../integrations/meta/services/auto-message.service';
 
 @Injectable()
 export class PaymentsService {
@@ -31,6 +32,7 @@ export class PaymentsService {
     private orgPayments: Repository<OrgPaymentProviderEntity>,
     private outbox: OutboxService,
     private idem: IdempotencyService,
+    private autoMessage: AutoMessageService,
   ) {}
 
   // ── List payment links for an order ──────────────────────────────────────
@@ -103,6 +105,14 @@ export class PaymentsService {
       paymentLinkId: link.id,
     });
 
+    void this.autoMessage
+      .onPaymentLinkCreated(link, {
+        customerId: order.customerId,
+        currency: order.currency,
+        total: order.total,
+        balanceDue: order.balanceDue,
+      })
+      .catch(() => undefined);
     return link;
   }
 
