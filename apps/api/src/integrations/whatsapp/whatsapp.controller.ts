@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-// apps/api/src/integrations/whatsapp/whatsapp.controller.ts
+// apps/api/src/integrations/whatsapp/whatsapp.controller.ts — v3
+// Added: /v1/channels/whatsapp/embedded-signup for Embedded Signup flow
 import {
   Body,
   Controller,
@@ -25,8 +25,6 @@ export class WhatsappController {
     private whatsapp: WhatsappService,
   ) {}
 
-  // ── Webhook verification ───────────────────────────────────────────────────
-
   @Get('webhooks/whatsapp')
   verify(
     @Query('hub.mode') mode?: string,
@@ -34,24 +32,33 @@ export class WhatsappController {
     @Query('hub.challenge') challenge?: string,
   ) {
     const verifyToken = this.config.getOrThrow<string>('WHATSAPP_VERIFY_TOKEN');
-    if (mode === 'subscribe' && token === verifyToken && challenge) {
+    if (mode === 'subscribe' && token === verifyToken && challenge)
       return challenge;
-    }
     throw new UnauthorizedException('Webhook verification failed');
   }
 
-  // ── Webhook receive ────────────────────────────────────────────────────────
-
   @Post('webhooks/whatsapp')
-  async receive(@Query('bypass') bypass?: string, @Body() body?: any) {
+  async receive(@Body() body?: any) {
     await this.whatsapp.ingestWebhook(body);
     return { ok: true };
   }
 
-  // ── Register WhatsApp channel ──────────────────────────────────────────────
-  // Called from the frontend modal after agent enters their Phone Number ID.
-  // Verifies credentials against Meta Graph API then saves a ChannelEntity.
+  // ── Embedded Signup — called after Meta popup returns code ────────────────
+  @Post('v1/channels/whatsapp/embedded-signup')
+  @UseGuards(JwtAuthGuard)
+  embeddedSignup(
+    @Ctx() ctx: { orgId: string },
+    @Body() body: { code: string; wabaId?: string; phoneNumberId?: string },
+  ) {
+    return this.whatsapp.handleEmbeddedSignup(
+      ctx.orgId,
+      body.code,
+      body.wabaId,
+      body.phoneNumberId,
+    );
+  }
 
+  // ── Manual registration (fallback for developers) ─────────────────────────
   @Post('v1/channels/whatsapp')
   @UseGuards(JwtAuthGuard)
   async registerChannel(
@@ -66,8 +73,6 @@ export class WhatsappController {
       body.wabaId,
     );
   }
-
-  // ── Disconnect WhatsApp channel ────────────────────────────────────────────
 
   @Post('v1/channels/whatsapp/disconnect')
   @UseGuards(JwtAuthGuard)
