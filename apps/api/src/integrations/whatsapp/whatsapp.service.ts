@@ -55,7 +55,8 @@ export class WhatsappService {
   }> {
     const appId = this.config.getOrThrow<string>('META_APP_ID');
     const appSecret = this.config.getOrThrow<string>('META_APP_SECRET');
-    const redirectUri = 'https://developers.facebook.com/setup-guide/wa';
+    const redirectUri =
+      this.config.get<string>('FRONTEND_URL') ?? 'https://commerceos.xenlo.app';
 
     // Step 1: Exchange code for user access token
     let userToken: string;
