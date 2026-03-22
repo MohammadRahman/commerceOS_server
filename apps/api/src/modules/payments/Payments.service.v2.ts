@@ -21,6 +21,7 @@ import { OrgPaymentProviderEntity } from '../providers/entities/org-payment-prov
 import { IdempotencyService, OutboxService } from '@app/common';
 import { PaymentLinkStatus } from './enums/payment-link.enum';
 import { UploadService } from '@app/common/upload/upload.service';
+import { AutoMessageService } from '../../integrations/meta/services/auto-message.service';
 
 export enum PaymentMode {
   PERSONAL = 'personal',
@@ -43,6 +44,7 @@ export class PaymentsService {
     private outbox: OutboxService,
     private idem: IdempotencyService,
     private upload: UploadService,
+    private autoMessage: AutoMessageService,
   ) {}
 
   // ── List payment links for an order ──────────────────────────────────────
@@ -212,7 +214,14 @@ export class PaymentsService {
     await this.outbox.enqueue(orgId, 'payment_link.generate', {
       paymentLinkId: link.id,
     });
-
+    void this.autoMessage
+      .onPaymentLinkCreated(link, {
+        customerId: order.customerId,
+        currency: order.currency,
+        total: order.total,
+        balanceDue: order.balanceDue,
+      })
+      .catch(() => undefined);
     return { ...link, mode, codAmount: codAmt };
   }
 
