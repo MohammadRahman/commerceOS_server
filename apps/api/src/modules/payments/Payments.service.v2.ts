@@ -207,21 +207,20 @@ export class PaymentsService {
           payload: instruction,
         }),
       );
-
+      void this.autoMessage
+        .onPaymentLinkCreated(link, {
+          customerId: order.customerId,
+          currency: order.currency,
+          total: order.total,
+          balanceDue: order.balanceDue,
+        })
+        .catch(() => undefined);
       return { ...link, mode, instruction, codAmount: codAmt };
     }
 
     await this.outbox.enqueue(orgId, 'payment_link.generate', {
       paymentLinkId: link.id,
     });
-    void this.autoMessage
-      .onPaymentLinkCreated(link, {
-        customerId: order.customerId,
-        currency: order.currency,
-        total: order.total,
-        balanceDue: order.balanceDue,
-      })
-      .catch(() => undefined);
     return { ...link, mode, codAmount: codAmt };
   }
 
