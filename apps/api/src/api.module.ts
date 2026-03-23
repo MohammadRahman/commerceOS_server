@@ -20,6 +20,7 @@ import { WhatsappModule } from './integrations/whatsapp/whatsapp.module';
 import { AppLoggerModule } from '@app/common';
 import { HealthModule } from './modules/health/health.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { StorefrontModule } from './modules/storefront/storefront.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     WhatsappModule,
     HealthModule,
     NotificationsModule,
+    StorefrontModule,
   ],
 })
 export class AppModule {}

@@ -88,4 +88,7 @@ export class OrderEntity extends AbstractEntity<OrderEntity> {
 
   @Column({ type: 'int', name: 'balance_due', default: 0 })
   balanceDue: number;
+
+  @Column({ type: 'varchar', length: 20, default: 'MANUAL' })
+  source: string; // 'MANUAL' | 'STOREFRONT' | 'INBOX'
 }
