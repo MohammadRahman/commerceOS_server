@@ -9,6 +9,8 @@ import { WhatsappController } from './whatsapp.controller';
 import { WhatsappService } from './whatsapp.service';
 import { InboxModule } from '../../modules/inbox/inbox.module';
 import { MetaModule } from '../meta/meta.module';
+import { CustomerEntity } from '../../modules/inbox/entities/customer.entity';
+import { CustomerIdentityEntity } from '../../modules/inbox/entities/customer-identity.entity';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { MetaModule } from '../meta/meta.module';
       ChannelEntity,
       ConversationEntity,
       MessageEntity,
+      CustomerEntity,
+      CustomerIdentityEntity,
     ]),
   ],
   controllers: [WhatsappController],
