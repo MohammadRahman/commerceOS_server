@@ -62,7 +62,7 @@ export interface GrowthReportResult {
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly CLAUDE_API = 'https://api.anthropic.com/v1/messages';
-  private readonly MODEL = 'claude-sonnet-4-20250514';
+  private readonly MODEL = 'claude-sonnet-4-5';
 
   constructor(
     private config: ConfigService,
