@@ -85,4 +85,12 @@ export class StoreSettingsEntity extends AbstractEntity<StoreSettingsEntity> {
     nullable: true,
   })
   whatsappNumber?: string;
+
+  @Column({ 
+  type: 'jsonb', 
+  name: 'theme_config',  // ← snake_case in DB
+  nullable: true,
+  default: {} 
+})
+themeConfig: Record<string, any>;
 }
