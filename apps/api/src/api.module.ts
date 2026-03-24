@@ -21,6 +21,7 @@ import { AppLoggerModule } from '@app/common';
 import { HealthModule } from './modules/health/health.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { StorefrontModule } from './modules/storefront/storefront.module';
     HealthModule,
     NotificationsModule,
     StorefrontModule,
+    AiModule,
   ],
 })
 export class AppModule {}
