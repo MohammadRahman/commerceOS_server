@@ -34,7 +34,7 @@ export class StorefrontController {
 
   @Post('v1/store/settings')
   @UseGuards(JwtAuthGuard, RbacGuard)
-  @RequirePerm('settings:write')
+  @RequirePerm('orders:write')
   upsertSettings(
     @Ctx() ctx: { orgId: string },
     @Body() dto: storefrontService.UpsertStoreDto,
