@@ -75,45 +75,54 @@ export class AiService {
     imageBase64?: string,
     imageMime?: string,
   ): Promise<string> {
-    const apiKey = this.config.getOrThrow<string>('ANTHROPIC_API_KEY');
+    try {
+      const apiKey = this.config.getOrThrow<string>('ANTHROPIC_API_KEY');
 
-    const content: any[] = [];
+      const content: any[] = [];
 
-    // Add image if provided
-    if (imageBase64 && imageMime) {
-      content.push({
-        type: 'image',
-        source: { type: 'base64', media_type: imageMime, data: imageBase64 },
-      });
-    } else if (imageUrl) {
-      content.push({
-        type: 'image',
-        source: { type: 'url', url: imageUrl },
-      });
-    }
+      // Add image if provided
+      if (imageBase64 && imageMime) {
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: imageMime, data: imageBase64 },
+        });
+      } else if (imageUrl) {
+        content.push({
+          type: 'image',
+          source: { type: 'url', url: imageUrl },
+        });
+      }
 
-    content.push({ type: 'text', text: prompt });
+      content.push({ type: 'text', text: prompt });
 
-    const res = await firstValueFrom(
-      this.http.post(
-        this.CLAUDE_API,
-        {
-          model: this.MODEL,
-          max_tokens: 1500,
-          messages: [{ role: 'user', content }],
-        },
-        {
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json',
+      const res = await firstValueFrom(
+        this.http.post(
+          this.CLAUDE_API,
+          {
+            model: this.MODEL,
+            max_tokens: 1500,
+            messages: [{ role: 'user', content }],
           },
-        },
-      ),
-    );
+          {
+            headers: {
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      );
 
-    const text = res.data?.content?.[0]?.text ?? '';
-    return text;
+      const text = res.data?.content?.[0]?.text ?? '';
+      return text;
+    } catch (err) {
+      this.logger.error(
+        `[AI] Anthropic API error: ${JSON.stringify(err?.response?.data ?? err?.message)}`,
+      );
+      throw new Error(
+        err?.response?.data?.error?.message ?? 'AI service failed',
+      );
+    }
   }
 
   private parseJSON<T>(text: string, fallback: T): T {
