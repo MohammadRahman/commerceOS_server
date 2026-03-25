@@ -5,7 +5,7 @@ import {
   Body, Controller, Delete, Get, Header, Param, Post, Put,
   Query, Req, UseGuards,
 } from '@nestjs/common';
-import { Request } from 'express';
+import type{ Request } from 'express';
 import type { StorefrontService, UpsertStoreDto, CreateProductDto, StorefrontOrderDto } from './storefront.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RbacGuard, RequirePerm } from '@app/common';
