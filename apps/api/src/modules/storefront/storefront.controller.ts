@@ -6,7 +6,7 @@ import {
   Query, Req, UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { StorefrontService, UpsertStoreDto, CreateProductDto, StorefrontOrderDto } from './storefront.service';
+import type { StorefrontService, UpsertStoreDto, CreateProductDto, StorefrontOrderDto } from './storefront.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RbacGuard, RequirePerm } from '@app/common';
 import { Ctx } from '@app/common/utils/request-context';
