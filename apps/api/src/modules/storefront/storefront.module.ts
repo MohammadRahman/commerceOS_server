@@ -12,6 +12,7 @@ import { StorefrontService } from './storefront.service';
 
 @Module({
   imports: [
+    DatabaseModule,
     DatabaseModule.forFeature([
       StoreSettingsEntity,
       ProductEntity,
