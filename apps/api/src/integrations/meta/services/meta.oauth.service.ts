@@ -1,4 +1,3 @@
-// v3 for comments
 // v3
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -51,17 +50,17 @@ export class MetaOAuthService {
     const redirectUri = this.config.getOrThrow<string>('META_REDIRECT_URI');
 
     // ── Scopes ──────────────────────────────────────────────────────────────
-    // pages_show_list          — list pages the user manages
-    // pages_manage_metadata    — subscribe to webhooks
-    // pages_messaging          — send/receive Messenger messages
-    // pages_read_engagement    — read posts, comments, likes on the page  ← NEW
-    // pages_manage_engagement  — reply to / hide comments                 ← NEW
+    // pages_show_list       — list pages the user manages
+    // pages_manage_metadata — subscribe to webhooks
+    // pages_messaging       — send/receive Messenger messages
+    // pages_read_engagement — read posts, comments, likes on the page
+    // pages_moderate        — reply to / hide / delete comments
     const scope = [
       'pages_show_list',
       'pages_manage_metadata',
       'pages_messaging',
       'pages_read_engagement',
-      'pages_manage_engagement',
+      'pages_moderate',
     ].join(',');
 
     const state = this.signState({
