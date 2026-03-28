@@ -16,6 +16,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { CustomerIdentityEntity } from '../../modules/inbox/entities/customer-identity.entity';
 import { CustomerEntity } from '../../modules/inbox/entities/customer.entity';
 import { AutoMessageService } from './services/auto-message.service';
+import { CommentsModule } from '../../modules/comments/comments.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AutoMessageService } from './services/auto-message.service';
     HttpModule,
     JwtModule,
     IdempotencyModule,
+    CommentsModule,
     DatabaseModule.forFeature([
       ChannelEntity,
       ConversationEntity,

@@ -22,6 +22,7 @@ import { HealthModule } from './modules/health/health.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
 import { AiModule } from './modules/ai/ai.module';
+import { CommentsModule } from './modules/comments/comments.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { AiModule } from './modules/ai/ai.module';
     NotificationsModule,
     StorefrontModule,
     AiModule,
+    CommentsModule,
   ],
 })
 export class AppModule {}

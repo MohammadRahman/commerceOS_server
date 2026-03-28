@@ -1,3 +1,4 @@
+/* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 // apps/api/src/modules/ai/ai.service.ts
 // Central AI service — all Claude API calls go through here
@@ -58,6 +59,18 @@ export interface GrowthReportResult {
   weekSummary: string;
 }
 
+// ── NEW: comment intent classification ────────────────────────────────────────
+
+export type CommentIntentResult = {
+  intent:
+    | 'price_query'
+    | 'buy_intent'
+    | 'availability'
+    | 'complaint'
+    | 'spam'
+    | 'other';
+  confidence: number;
+};
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -356,6 +369,63 @@ Generate 3-5 insights maximum. Be specific and actionable for BD market.`;
     } catch (e: any) {
       this.logger.warn(`[AI] FB photos fetch failed: ${e?.message}`);
       return [];
+    }
+  }
+  // ── Comment intent classification (used by CommentsService) ──────────────
+  /**
+   * Classify a single social media comment into an intent category.
+   * Uses claude-haiku for speed and cost efficiency — classification
+   * runs on every incoming comment so we want the cheapest model.
+   * CommentsService calls this; no other service needs to import Anthropic SDK.
+   */
+  async classifyCommentIntent(text: string): Promise<CommentIntentResult> {
+    const prompt = `Classify this social media comment into exactly one intent category.
+Comment: "${text}"
+ 
+Categories:
+- price_query: asking about price, cost, rate, কত, দাম
+- buy_intent: wants to buy, interested, inbox, DM, order
+- availability: asking if available, আছে, stock
+- complaint: negative, unhappy, problem
+- spam: irrelevant, promotional, repeated
+- other: anything else
+ 
+Respond with JSON only, no markdown: {"intent":"<category>","confidence":<0.0-1.0>}`;
+
+    try {
+      const apiKey = this.config.getOrThrow<string>('ANTHROPIC_API_KEY');
+
+      // Use haiku — cheapest model, classification doesn't need sonnet
+      const res = await firstValueFrom(
+        this.http.post(
+          this.CLAUDE_API,
+          {
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 100,
+            messages: [{ role: 'user', content: prompt }],
+          },
+          {
+            headers: {
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      );
+
+      const raw = (res.data?.content?.[0]?.text ?? '{}').trim();
+      const parsed = this.parseJSON<{ intent: string; confidence: number }>(
+        raw,
+        { intent: 'other', confidence: 0.5 },
+      );
+      return {
+        intent: (parsed.intent as CommentIntentResult['intent']) ?? 'other',
+        confidence: Number(parsed.confidence) ?? 0.5,
+      };
+    } catch (err) {
+      this.logger.warn(`[AI] Comment classification failed: ${err?.message}`);
+      return { intent: 'other', confidence: 0 };
     }
   }
 }
