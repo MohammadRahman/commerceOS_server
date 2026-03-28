@@ -9,6 +9,7 @@ import { OrderEventEntity } from '../orders/entities/order-event.entity';
 import { CustomerEntity } from '../inbox/entities/customer.entity';
 import { StorefrontController } from './storefront.controller';
 import { StorefrontService } from './storefront.service';
+import { UploadModule } from '@app/common/upload';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { StorefrontService } from './storefront.service';
       OrderEventEntity,
       CustomerEntity,
     ]),
+    UploadModule,
   ],
   controllers: [StorefrontController],
   providers: [StorefrontService],
