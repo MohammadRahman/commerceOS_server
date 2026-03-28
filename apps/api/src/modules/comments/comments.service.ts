@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // apps/api/src/modules/comments/comments.service.ts
@@ -319,7 +318,7 @@ export class CommentsService {
   async bulkReply(
     orgId: string,
     dto: BulkReplyDto,
-    userId: string,
+    userId: string | null,
   ): Promise<{ success: number; failed: number }> {
     const { accessToken } = await this.getChannelForOrg(orgId);
     let success = 0;
@@ -492,7 +491,7 @@ export class CommentsService {
               commentIds: [comment.id],
               replyText: this.interpolate(rule.replyTemplate ?? '', comment),
             },
-            'auto',
+            null,
           );
         }
         if (
@@ -616,56 +615,25 @@ export class CommentsService {
       .replace(/{{name}}/g, comment.senderName)
       .replace(/{{comment}}/g, comment.text);
   }
-
-  async debugToken(orgId: string): Promise<{
-    pageId: string | undefined;
-    permissions: any;
-    postsResponse: any;
-  }> {
-    const channel = await this.channels.findOne({
-      where: { orgId, type: 'FACEBOOK', status: 'ACTIVE' } as any,
-    });
-
-    if (!channel)
-      throw new NotFoundException('No active Facebook channel found');
-
-    const token = this.decryptToken(channel.accessTokenEnc!);
-
-    // Check token permissions
-    const [permRes, postsRes] = await Promise.all([
-      fetch(
-        `https://graph.facebook.com/v19.0/me/permissions?access_token=${token}`,
-      ),
-      fetch(
-        `https://graph.facebook.com/v19.0/${channel.pageId}/posts?fields=id,message,created_time&limit=3&access_token=${token}`,
-      ),
-    ]);
-
-    const [permissions, postsResponse] = await Promise.all([
-      permRes.json(),
-      postsRes.json(),
-    ]);
-
-    return {
-      pageId: channel.pageId,
-      permissions, // shows which scopes are granted vs declined
-      postsResponse, // direct Graph API result — empty [] means missing scope
-    };
-  }
 }
-/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
+// v1 this version is stable however theres type issues which is fixed in v2
+// /* eslint-disable @typescript-eslint/no-require-imports */
+// /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
+// /* eslint-disable @typescript-eslint/no-unused-vars */
 // /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 // /* eslint-disable @typescript-eslint/no-explicit-any */
 // // apps/api/src/modules/comments/comments.service.ts
-// //
-// // Uses AiService for all Claude calls — no direct Anthropic SDK import.
-// // CommentsService stays focused on comment business logic;
-// // AiService owns all LLM interactions.
-
-// import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+// import {
+//   Injectable,
+//   Logger,
+//   NotFoundException,
+//   BadRequestException,
+// } from '@nestjs/common';
 // import { InjectRepository } from '@nestjs/typeorm';
 // import { Repository, In } from 'typeorm';
+// import { ConfigService } from '@nestjs/config';
+// import * as crypto from 'crypto';
 // import { PostEntity } from './entities/post.entity';
 // import {
 //   PostCommentEntity,
@@ -674,6 +642,7 @@ export class CommentsService {
 // } from './entities/post-comment.entity';
 // import { AutoReplyRuleEntity } from './entities/auto-reply-rule.entity';
 // import { AiService } from '../ai/ai.service';
+// import { ChannelEntity, ChannelType } from '../inbox/entities/channel.entity';
 
 // // ─── DTOs ─────────────────────────────────────────────────────────────────────
 
@@ -688,7 +657,6 @@ export class CommentsService {
 //   limit?: number;
 //   offset?: number;
 // }
-
 // export interface BulkReplyDto {
 //   commentIds: string[];
 //   replyText: string;
@@ -697,15 +665,9 @@ export class CommentsService {
 //   commentIds: string[];
 //   dmText?: string;
 // }
-// export interface BulkSendPaymentDto {
-//   commentIds: string[];
-//   productId: string;
-//   messageText?: string;
-// }
 // export interface BulkHideDto {
 //   commentIds: string[];
 // }
-
 // export interface CreateAutoRuleDto {
 //   name: string;
 //   trigger: string;
@@ -719,6 +681,11 @@ export class CommentsService {
 //   priority?: number;
 // }
 
+// interface ResolvedChannel {
+//   pageId: string;
+//   accessToken: string;
+// }
+
 // @Injectable()
 // export class CommentsService {
 //   private readonly logger = new Logger(CommentsService.name);
@@ -730,14 +697,60 @@ export class CommentsService {
 //     private comments: Repository<PostCommentEntity>,
 //     @InjectRepository(AutoReplyRuleEntity)
 //     private rules: Repository<AutoReplyRuleEntity>,
-//     // AiService owns all LLM calls — injected here instead of raw Anthropic SDK
+//     @InjectRepository(ChannelEntity)
+//     private channels: Repository<ChannelEntity>,
 //     private ai: AiService,
+//     private config: ConfigService,
 //   ) {}
+
+//   // ── Channel resolution ─────────────────────────────────────────────────────
+
+//   /**
+//    * Finds the org's active Facebook/Instagram channel and decrypts the
+//    * page access token using AES-256-GCM — identical to MetaService.
+//    */
+//   async getChannelForOrg(
+//     orgId: string,
+//     platform: 'facebook' | 'instagram' = 'facebook',
+//   ): Promise<ResolvedChannel> {
+//     const type =
+//       platform === 'facebook' ? ChannelType.FACEBOOK : ChannelType.INSTAGRAM;
+
+//     const channel = await this.channels.findOne({
+//       where: { orgId, type, status: 'ACTIVE' } as any,
+//     });
+
+//     if (!channel)
+//       throw new BadRequestException(
+//         `No active ${platform} channel. Connect one in Settings → Channels.`,
+//       );
+//     if (!channel.pageId)
+//       throw new BadRequestException('Channel is missing pageId');
+//     if (!channel.accessTokenEnc)
+//       throw new BadRequestException('Channel is missing access token');
+
+//     return {
+//       pageId: channel.pageId,
+//       accessToken: this.decryptToken(channel.accessTokenEnc),
+//     };
+//   }
+
+//   private decryptToken(enc: string): string {
+//     const key = this.config.getOrThrow<string>('META_OAUTH_STATE_SECRET');
+//     const buf = Buffer.from(enc, 'base64');
+//     const iv = buf.subarray(0, 12);
+//     const tag = buf.subarray(12, 28);
+//     const data = buf.subarray(28);
+//     const k = crypto.createHash('sha256').update(key).digest();
+//     const dc = crypto.createDecipheriv('aes-256-gcm', k, iv);
+//     dc.setAuthTag(tag);
+//     return Buffer.concat([dc.update(data), dc.final()]).toString('utf8');
+//   }
 
 //   // ── Posts ──────────────────────────────────────────────────────────────────
 
 //   async listPosts(orgId: string): Promise<PostEntity[]> {
-//     return this.posts.find({
+//     return await this.posts.find({
 //       where: { orgId } as any,
 //       order: { createdAt: 'DESC' } as any,
 //       take: 50,
@@ -752,11 +765,8 @@ export class CommentsService {
 //     return post;
 //   }
 
-//   async syncPosts(
-//     orgId: string,
-//     pageId: string,
-//     accessToken: string,
-//   ): Promise<PostEntity[]> {
+//   async syncPosts(orgId: string): Promise<PostEntity[]> {
+//     const { pageId, accessToken } = await this.getChannelForOrg(orgId);
 //     const fields = 'id,message,story,created_time,permalink_url,full_picture';
 //     const [postsRes, livesRes] = await Promise.all([
 //       fetch(
@@ -826,8 +836,8 @@ export class CommentsService {
 //   async syncComments(
 //     orgId: string,
 //     postId: string,
-//     accessToken: string,
 //   ): Promise<{ synced: number; classified: number }> {
+//     const { accessToken } = await this.getChannelForOrg(orgId);
 //     const post = await this.getPost(orgId, postId);
 //     const fields = 'id,message,from,created_time,parent';
 //     let url: string | null =
@@ -867,7 +877,6 @@ export class CommentsService {
 //         synced++;
 
 //         try {
-//           // Delegate to AiService — single source of truth for all LLM calls
 //           const result = await this.ai.classifyCommentIntent(comment.text);
 //           await this.comments.update({ id: comment.id }, {
 //             intent: result.intent,
@@ -876,7 +885,7 @@ export class CommentsService {
 //           } as any);
 //           classified++;
 //         } catch {
-//           /* non-fatal — comment still saved */
+//           /* non-fatal */
 //         }
 
 //         await this.runAutoRules(orgId, comment, accessToken).catch(() => {});
@@ -924,14 +933,14 @@ export class CommentsService {
 //     return { items, total };
 //   }
 
-//   // ── Bulk ops ───────────────────────────────────────────────────────────────
+//   // ── Bulk ops — channel resolved internally ─────────────────────────────────
 
 //   async bulkReply(
 //     orgId: string,
 //     dto: BulkReplyDto,
-//     accessToken: string,
 //     userId: string,
 //   ): Promise<{ success: number; failed: number }> {
+//     const { accessToken } = await this.getChannelForOrg(orgId);
 //     let success = 0;
 //     let failed = 0;
 //     const comments = await this.comments.find({
@@ -969,8 +978,8 @@ export class CommentsService {
 //   async bulkMoveToInbox(
 //     orgId: string,
 //     dto: BulkMoveToInboxDto,
-//     accessToken: string,
 //   ): Promise<{ success: number; failed: number }> {
+//     const { accessToken } = await this.getChannelForOrg(orgId);
 //     let success = 0;
 //     let failed = 0;
 //     const comments = await this.comments.find({
@@ -1010,8 +1019,8 @@ export class CommentsService {
 //   async bulkHide(
 //     orgId: string,
 //     dto: BulkHideDto,
-//     accessToken: string,
 //   ): Promise<{ success: number; failed: number }> {
+//     const { accessToken } = await this.getChannelForOrg(orgId);
 //     let success = 0;
 //     let failed = 0;
 //     const comments = await this.comments.find({
@@ -1044,7 +1053,7 @@ export class CommentsService {
 //   // ── Auto-rules ─────────────────────────────────────────────────────────────
 
 //   async listRules(orgId: string): Promise<AutoReplyRuleEntity[]> {
-//     return this.rules.find({
+//     return await this.rules.find({
 //       where: { orgId } as any,
 //       order: { priority: 'ASC' } as any,
 //     });
@@ -1067,9 +1076,7 @@ export class CommentsService {
 //     const rule = await this.rules.findOne({ where: { id, orgId } as any });
 //     if (!rule) throw new NotFoundException('Rule not found');
 //     await this.rules.update({ id }, dto as any);
-//     return this.rules.findOne({
-//       where: { id },
-//     }) as Promise<AutoReplyRuleEntity>;
+//     return (await this.rules.findOne({ where: { id } })) as AutoReplyRuleEntity;
 //   }
 
 //   async deleteRule(orgId: string, id: string): Promise<void> {
@@ -1082,9 +1089,7 @@ export class CommentsService {
 //     const rule = await this.rules.findOne({ where: { id, orgId } as any });
 //     if (!rule) throw new NotFoundException('Rule not found');
 //     await this.rules.update({ id }, { isActive: !rule.isActive } as any);
-//     return this.rules.findOne({
-//       where: { id },
-//     }) as Promise<AutoReplyRuleEntity>;
+//     return (await this.rules.findOne({ where: { id } })) as AutoReplyRuleEntity;
 //   }
 
 //   async runAutoRules(
@@ -1106,7 +1111,6 @@ export class CommentsService {
 //               commentIds: [comment.id],
 //               replyText: this.interpolate(rule.replyTemplate ?? '', comment),
 //             },
-//             accessToken,
 //             'auto',
 //           );
 //         }
@@ -1114,17 +1118,13 @@ export class CommentsService {
 //           rule.action === 'move_to_inbox' ||
 //           rule.action === 'reply_and_move'
 //         ) {
-//           await this.bulkMoveToInbox(
-//             orgId,
-//             {
-//               commentIds: [comment.id],
-//               dmText: this.interpolate(rule.dmTemplate ?? '', comment),
-//             },
-//             accessToken,
-//           );
+//           await this.bulkMoveToInbox(orgId, {
+//             commentIds: [comment.id],
+//             dmText: this.interpolate(rule.dmTemplate ?? '', comment),
+//           });
 //         }
 //         if (rule.action === 'hide') {
-//           await this.bulkHide(orgId, { commentIds: [comment.id] }, accessToken);
+//           await this.bulkHide(orgId, { commentIds: [comment.id] });
 //         }
 //         await this.rules.update({ id: rule.id }, {
 //           fireCount: rule.fireCount + 1,
@@ -1137,26 +1137,47 @@ export class CommentsService {
 //     }
 //   }
 
+//   // ── Webhook ingestion (called from MetaService) ────────────────────────────
+
 //   async ingestWebhookComment(payload: {
 //     orgId: string;
-//     postId: string;
+//     platformPostId: string;
 //     platformCommentId: string;
 //     senderId: string;
 //     senderName: string;
 //     text: string;
 //     commentedAt: Date;
 //     platform: string;
-//     accessToken: string;
 //   }): Promise<void> {
 //     const existing = await this.comments.findOne({
 //       where: { platformCommentId: payload.platformCommentId } as any,
 //     });
 //     if (existing) return;
 
+//     // Resolve or stub parent post
+//     let post = await this.posts.findOne({
+//       where: {
+//         orgId: payload.orgId,
+//         platformPostId: payload.platformPostId,
+//       } as any,
+//     });
+//     if (!post) {
+//       post = (await this.posts.save(
+//         this.posts.create({
+//           orgId: payload.orgId,
+//           platformPostId: payload.platformPostId,
+//           platform: payload.platform,
+//           type: 'post',
+//           isLive: false,
+//           commentCount: 1,
+//         } as any),
+//       )) as unknown as PostEntity;
+//     }
+
 //     const comment = (await this.comments.save(
 //       this.comments.create({
 //         orgId: payload.orgId,
-//         postId: payload.postId,
+//         postId: post.id,
 //         platformCommentId: payload.platformCommentId,
 //         platform: payload.platform,
 //         senderId: payload.senderId,
@@ -1171,7 +1192,7 @@ export class CommentsService {
 //       } as any),
 //     )) as unknown as PostCommentEntity;
 
-//     // Classify async via AiService — don't block webhook response
+//     // Classify async
 //     this.ai
 //       .classifyCommentIntent(comment.text)
 //       .then((r) =>
@@ -1183,12 +1204,16 @@ export class CommentsService {
 //       )
 //       .catch(() => {});
 
-//     this.runAutoRules(payload.orgId, comment, payload.accessToken).catch(
-//       () => {},
-//     );
+//     // Run auto-rules — resolve token from channel
+//     this.getChannelForOrg(
+//       payload.orgId,
+//       payload.platform as 'facebook' | 'instagram',
+//     )
+//       .then(({ accessToken }) =>
+//         this.runAutoRules(payload.orgId, comment, accessToken),
+//       )
+//       .catch(() => {});
 //   }
-
-//   // ── Private helpers ────────────────────────────────────────────────────────
 
 //   private ruleMatches(
 //     rule: AutoReplyRuleEntity,
@@ -1209,5 +1234,41 @@ export class CommentsService {
 //     return template
 //       .replace(/{{name}}/g, comment.senderName)
 //       .replace(/{{comment}}/g, comment.text);
+//   }
+
+//   async debugToken(orgId: string): Promise<{
+//     pageId: string | undefined;
+//     permissions: any;
+//     postsResponse: any;
+//   }> {
+//     const channel = await this.channels.findOne({
+//       where: { orgId, type: 'FACEBOOK', status: 'ACTIVE' } as any,
+//     });
+
+//     if (!channel)
+//       throw new NotFoundException('No active Facebook channel found');
+
+//     const token = this.decryptToken(channel.accessTokenEnc!);
+
+//     // Check token permissions
+//     const [permRes, postsRes] = await Promise.all([
+//       fetch(
+//         `https://graph.facebook.com/v19.0/me/permissions?access_token=${token}`,
+//       ),
+//       fetch(
+//         `https://graph.facebook.com/v19.0/${channel.pageId}/posts?fields=id,message,created_time&limit=3&access_token=${token}`,
+//       ),
+//     ]);
+
+//     const [permissions, postsResponse] = await Promise.all([
+//       permRes.json(),
+//       postsRes.json(),
+//     ]);
+
+//     return {
+//       pageId: channel.pageId,
+//       permissions, // shows which scopes are granted vs declined
+//       postsResponse, // direct Graph API result — empty [] means missing scope
+//     };
 //   }
 // }

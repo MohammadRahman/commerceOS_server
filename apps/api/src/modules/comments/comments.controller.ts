@@ -105,14 +105,6 @@ export class CommentsController {
   deleteRule(@Request() req: any, @Param('id') id: string) {
     return this.svc.deleteRule(req.user.orgId, id);
   }
-
-  // TEMPORARY DEBUG ONLY — remove after confirming token scopes
-
-  @Get('comments/debug-token')
-  @UseGuards(JwtAuthGuard)
-  debugToken(@Request() req: any) {
-    return this.svc.debugToken(req.user.orgId);
-  }
 }
 // apps/api/src/modules/comments/comments.controller.ts
 // import {
