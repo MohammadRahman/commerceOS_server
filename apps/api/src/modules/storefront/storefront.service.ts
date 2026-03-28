@@ -19,6 +19,7 @@ import { CustomerEntity } from '../inbox/entities/customer.entity';
 import { UpsertStoreDto } from './dto/upsert-store.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { StorefrontOrderDto } from './dto/storefront-order.dto';
+import { isUUID } from 'class-validator';
 
 // Re-export so the controller can import from one place if preferred
 export { UpsertStoreDto, CreateProductDto, StorefrontOrderDto };
@@ -150,12 +151,20 @@ export class StorefrontService {
   }
 
   async getProduct(orgId: string, slugOrId: string): Promise<ProductEntity> {
-    const product = await this.products.findOne({
-      where: [
-        { orgId, slug: slugOrId },
-        { orgId, id: slugOrId },
-      ] as any,
-    });
+    const where = isUUID(slugOrId)
+      ? [
+          { orgId, slug: slugOrId },
+          { orgId, id: slugOrId },
+        ]
+      : [{ orgId, slug: slugOrId }];
+
+    // const product = await this.products.findOne({
+    //   where: [
+    //     { orgId, slug: slugOrId },
+    //     { orgId, id: slugOrId },
+    //   ] as any,
+    // });
+    const product = await this.products.findOne({ where: where as any });
     if (!product) throw new NotFoundException('Product not found');
     return product;
   }
