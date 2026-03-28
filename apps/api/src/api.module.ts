@@ -23,6 +23,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { StorefrontModule } from './modules/storefront/storefront.module';
 import { AiModule } from './modules/ai/ai.module';
 import { CommentsModule } from './modules/comments/comments.module';
+import { LiveSaleModule } from './modules/live-sale/live-sale.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { CommentsModule } from './modules/comments/comments.module';
     StorefrontModule,
     AiModule,
     CommentsModule,
+    LiveSaleModule,
   ],
 })
 export class AppModule {}
