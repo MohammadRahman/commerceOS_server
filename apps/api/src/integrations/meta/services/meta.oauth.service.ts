@@ -60,7 +60,7 @@ export class MetaOAuthService {
       'pages_manage_metadata',
       'pages_messaging',
       'pages_read_engagement',
-      'pages_moderate',
+      'pages_manage_engagement',
     ].join(',');
 
     const state = this.signState({
