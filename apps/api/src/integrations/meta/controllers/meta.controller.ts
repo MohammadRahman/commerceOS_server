@@ -49,20 +49,6 @@ export class MetaController {
     }
     throw new UnauthorizedException('Webhook verification failed');
   }
-  // @Get()
-  // verify(
-  //   @Query('hub.mode') mode?: string,
-  //   @Query('hub.verify_token') token?: string,
-  //   @Query('hub.challenge') challenge?: string,
-  // ) {
-  //   const verifyToken = this.config.getOrThrow<string>('META_VERIFY_TOKEN');
-
-  //   if (mode === 'subscribe' && token === verifyToken && challenge) {
-  //     return challenge;
-  //   }
-
-  //   throw new UnauthorizedException('Webhook verification failed');
-  // }
 
   @Post()
   async receive(
@@ -99,36 +85,4 @@ export class MetaController {
     await this.meta.ingestWebhook(body);
     return { ok: true };
   }
-  // @Post()
-  // async receive(
-  //   @Req() req: Request & { rawBody?: Buffer },
-  //   @Headers('x-hub-signature-256') signature?: string,
-  //   @Body() body?: any,
-  // ) {
-  //   const appSecret = this.config.getOrThrow<string>('META_APP_SECRET');
-
-  //   const rawBody = (req as any).rawBody;
-  //   if (!rawBody) {
-  //     throw new BadRequestException(
-  //       'Missing rawBody for signature verification',
-  //     );
-  //   }
-  //   // remove in production
-  //   if (signature === 'test') {
-  //     await this.meta.ingestWebhook(body);
-  //     return { ok: true, bypass: true };
-  //   }
-  //   const ok = verifyMetaSignature({
-  //     rawBody,
-  //     appSecret,
-  //     headerValue: signature,
-  //   });
-
-  //   if (!ok) {
-  //     throw new UnauthorizedException('Invalid webhook signature');
-  //   }
-  //   console.log('first', ok);
-  //   await this.meta.ingestWebhook(body);
-  //   return { ok: true };
-  // }
 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -614,6 +615,42 @@ export class CommentsService {
     return template
       .replace(/{{name}}/g, comment.senderName)
       .replace(/{{comment}}/g, comment.text);
+  }
+
+  async debugToken(orgId: string): Promise<{
+    pageId: string | undefined;
+    permissions: any;
+    postsResponse: any;
+  }> {
+    const channel = await this.channels.findOne({
+      where: { orgId, type: 'FACEBOOK', status: 'ACTIVE' } as any,
+    });
+
+    if (!channel)
+      throw new NotFoundException('No active Facebook channel found');
+
+    const token = this.decryptToken(channel.accessTokenEnc!);
+
+    // Check token permissions
+    const [permRes, postsRes] = await Promise.all([
+      fetch(
+        `https://graph.facebook.com/v19.0/me/permissions?access_token=${token}`,
+      ),
+      fetch(
+        `https://graph.facebook.com/v19.0/${channel.pageId}/posts?fields=id,message,created_time&limit=3&access_token=${token}`,
+      ),
+    ]);
+
+    const [permissions, postsResponse] = await Promise.all([
+      permRes.json(),
+      postsRes.json(),
+    ]);
+
+    return {
+      pageId: channel.pageId,
+      permissions, // shows which scopes are granted vs declined
+      postsResponse, // direct Graph API result — empty [] means missing scope
+    };
   }
 }
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
