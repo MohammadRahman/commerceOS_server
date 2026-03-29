@@ -1,17 +1,18 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // apps/api/src/modules/storefront/dto/upsert-store.dto.ts
 import {
   IsString,
   IsOptional,
   IsBoolean,
   IsInt,
-  IsArray,
   MaxLength,
   MinLength,
   Min,
   IsObject,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 // ─── SEO sub-DTO ──────────────────────────────────────────────────────────────
 
@@ -143,11 +144,28 @@ export class ThemeConfigDto {
 
   // Hero slides and categories are arrays of objects — validated loosely
   // to avoid coupling the DTO to the client type system
+  // Hero slides — use @Transform to pass the raw value through untouched.
+  // Without this, class-transformer strips all object properties from each
+  // array element (because there is no @Type(() => HeroSlideDto)), turning
+  // [{id, mediaUrl, ...}] into [{}] or [[]] depending on the version.
   @IsOptional()
-  @IsArray()
-  heroSlides?: any[]; // loose — heroSlide objects validated client-side
+  @Transform(({ value }) => {
+    if (!Array.isArray(value)) return [];
+    // Keep only entries that are plain objects with an id string
+    return value.filter(
+      (s) =>
+        s !== null &&
+        typeof s === 'object' &&
+        !Array.isArray(s) &&
+        typeof s['id'] === 'string',
+    );
+  })
+  heroSlides?: any[];
 
   @IsOptional()
+  @Transform(({ value }) =>
+    Array.isArray(value) ? value.filter((s) => typeof s === 'string') : [],
+  )
   categories?: string[];
 }
 

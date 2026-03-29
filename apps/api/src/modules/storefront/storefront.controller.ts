@@ -30,12 +30,6 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-// import {
-//   StorefrontService,
-//   UpsertStoreDto,
-//   CreateProductDto,
-//   StorefrontOrderDto,
-// } from './storefront.service';
 import { UploadService } from '@app/common/upload';
 import { StorefrontService } from './storefront.service';
 import { UpsertStoreDto } from './dto/upsert-store.dto';
