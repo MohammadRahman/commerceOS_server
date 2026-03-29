@@ -10,10 +10,13 @@ import { CustomerEntity } from '../inbox/entities/customer.entity';
 import { StorefrontController } from './storefront.controller';
 import { StorefrontService } from './storefront.service';
 import { UploadModule } from '@app/common/upload';
+import { CloudflareDnsService } from './cloudflare-dns.service';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
     DatabaseModule,
+    HttpModule,
     DatabaseModule.forFeature([
       StoreSettingsEntity,
       ProductEntity,
@@ -25,7 +28,7 @@ import { UploadModule } from '@app/common/upload';
     UploadModule,
   ],
   controllers: [StorefrontController],
-  providers: [StorefrontService],
+  providers: [StorefrontService, CloudflareDnsService],
   exports: [StorefrontService],
 })
 export class StorefrontModule {}
