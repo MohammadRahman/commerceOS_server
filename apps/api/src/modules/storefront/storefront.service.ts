@@ -113,9 +113,12 @@ export class StorefrontService {
 
       // Merge JSONB — prevents partial saves wiping unrelated keys
       if (dto.themeConfig !== undefined) {
+        const prev = existing.themeConfig ?? {};
+        const next = dto.themeConfig ?? {};
         update.themeConfig = {
-          ...(existing.themeConfig ?? {}),
-          ...dto.themeConfig,
+          ...prev,
+          ...next,
+          heroSlides: next.heroSlides ?? prev.heroSlides,
         };
       }
       if (dto.seo !== undefined) {
