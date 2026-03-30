@@ -17,141 +17,59 @@ import { Type, Transform } from 'class-transformer';
 // ─── SEO sub-DTO ──────────────────────────────────────────────────────────────
 
 export class StoreSeoDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  title?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(180)
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  keywords?: string;
-
-  @IsOptional()
-  @IsString()
-  ogImage?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  googleVerification?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  bingVerification?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  twitterHandle?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  enableStructuredData?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  robots?: string;
+  @IsOptional() @IsString() @MaxLength(80) title?: string;
+  @IsOptional() @IsString() @MaxLength(180) description?: string;
+  @IsOptional() @IsString() @MaxLength(500) keywords?: string;
+  @IsOptional() @IsString() ogImage?: string;
+  @IsOptional() @IsString() @MaxLength(200) googleVerification?: string;
+  @IsOptional() @IsString() @MaxLength(200) bingVerification?: string;
+  @IsOptional() @IsString() @MaxLength(60) twitterHandle?: string;
+  @IsOptional() @IsBoolean() enableStructuredData?: boolean;
+  @IsOptional() @IsString() @MaxLength(100) robots?: string;
 }
 
 // ─── ThemeConfig sub-DTO ──────────────────────────────────────────────────────
-// ThemeConfig is intentionally kept as a loose object on the backend — it is
-// a large, evolving client-side type (layouts, fonts, hero slides, animations)
-// that would require constant backend DTO updates as the builder adds features.
-// We validate only the top-level shape and let the JSONB column hold the rest.
+// Intentionally loose — ThemeConfig is a large evolving client-side type stored
+// as JSONB. We validate only the known top-level scalar fields and pass the rest
+// through. Adding a new field here just means the DTO won't reject it; the JSONB
+// column holds whatever shape the client sends.
 
 export class ThemeConfigDto {
-  @IsOptional()
-  @IsString()
-  layout?: string;
+  @IsOptional() @IsString() layout?: string;
+  @IsOptional() @IsString() font?: string;
+  @IsOptional() @IsString() primaryColor?: string;
+  @IsOptional() @IsString() secondaryColor?: string;
+  @IsOptional() @IsString() heroStyle?: string;
 
-  @IsOptional()
-  @IsString()
-  font?: string;
+  /** sticky | transparent | minimal | enterprise | centered */
+  @IsOptional() @IsString() navStyle?: string;
 
-  @IsOptional()
-  @IsString()
-  primaryColor?: string;
+  /** classic | magazine | stacked | gallery | muji */
+  @IsOptional() @IsString() productDetailLayout?: string;
 
-  @IsOptional()
-  @IsString()
-  secondaryColor?: string;
-
-  @IsOptional()
-  @IsString()
-  heroStyle?: string;
-
-  @IsOptional()
-  @IsString()
-  navStyle?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  gridCols?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  showCategories?: boolean;
-
-  @IsOptional()
-  @IsString()
-  borderRadius?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  showRatings?: boolean;
+  @IsOptional() @IsInt() @Min(1) gridCols?: number;
+  @IsOptional() @IsBoolean() showCategories?: boolean;
+  @IsOptional() @IsString() borderRadius?: string;
+  @IsOptional() @IsBoolean() showRatings?: boolean;
 
   @IsOptional()
   @MaxLength(300)
-  announcement?: string | null; // no @IsString — must accept null
+  announcement?: string | null; // accepts null to clear the bar
 
-  @IsOptional()
-  @IsString()
-  heroTitle?: string;
+  @IsOptional() @IsString() heroTitle?: string;
+  @IsOptional() @IsString() heroSubtitle?: string;
+  @IsOptional() @IsString() heroCta?: string;
+  @IsOptional() @IsString() heroAlignment?: string;
+  @IsOptional() @IsString() heroAnimation?: string;
+  @IsOptional() @IsString() heroHeight?: string;
+  @IsOptional() @IsInt() @Min(0) heroOverlayOpacity?: number;
 
-  @IsOptional()
-  @IsString()
-  heroSubtitle?: string;
-
-  @IsOptional()
-  @IsString()
-  heroCta?: string;
-
-  @IsOptional()
-  @IsString()
-  heroAlignment?: string;
-
-  @IsOptional()
-  @IsString()
-  heroAnimation?: string;
-
-  @IsOptional()
-  @IsString()
-  heroHeight?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  heroOverlayOpacity?: number;
-
-  // Hero slides and categories are arrays of objects — validated loosely
-  // to avoid coupling the DTO to the client type system
-  // Hero slides — use @Transform to pass the raw value through untouched.
-  // Without this, class-transformer strips all object properties from each
-  // array element (because there is no @Type(() => HeroSlideDto)), turning
-  // [{id, mediaUrl, ...}] into [{}] or [[]] depending on the version.
+  // Hero slides — @Transform keeps each slide object intact.
+  // Without it, class-transformer strips all properties from array elements
+  // that don't have a @Type(() => SomeDto), turning [{id, mediaUrl}] into [{}].
   @IsOptional()
   @Transform(({ value }) => {
     if (!Array.isArray(value)) return [];
-    // Keep only entries that are plain objects with an id string
     return value.filter(
       (s) =>
         s !== null &&
@@ -173,97 +91,34 @@ export class ThemeConfigDto {
 
 export class UpsertStoreDto {
   // ── Identity ──────────────────────────────────────────────────────────────
+  @IsString() @MinLength(1) @MaxLength(200) name: string;
 
-  @IsString()
-  @MinLength(1)
-  @MaxLength(200)
-  name: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  slug?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  customDomain?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  description?: string;
+  @IsOptional() @IsString() @MaxLength(100) slug?: string;
+  @IsOptional() @IsString() @MaxLength(200) customDomain?: string;
+  @IsOptional() @IsString() @MaxLength(1000) description?: string;
 
   // ── Media ─────────────────────────────────────────────────────────────────
-
-  @IsOptional()
-  @IsString()
-  logoUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  bannerUrl?: string;
+  @IsOptional() @IsString() logoUrl?: string;
+  @IsOptional() @IsString() bannerUrl?: string;
 
   // ── Commerce ──────────────────────────────────────────────────────────────
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  themeColor?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(5)
-  currency?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  deliveryFee?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  minOrder?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
+  @IsOptional() @IsString() @MaxLength(20) themeColor?: string;
+  @IsOptional() @IsString() @MaxLength(5) currency?: string;
+  @IsOptional() @IsInt() @Min(0) deliveryFee?: number;
+  @IsOptional() @IsInt() @Min(0) minOrder?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 
   // ── Contact ───────────────────────────────────────────────────────────────
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(30)
-  contactPhone?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(320)
-  contactEmail?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  address?: string;
+  @IsOptional() @IsString() @MaxLength(30) contactPhone?: string;
+  @IsOptional() @IsString() @MaxLength(320) contactEmail?: string;
+  @IsOptional() @IsString() @MaxLength(500) address?: string;
 
   // ── Social ────────────────────────────────────────────────────────────────
-
-  @IsOptional()
-  @IsString()
-  facebookUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  instagramUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(30)
-  whatsappNumber?: string;
+  @IsOptional() @IsString() facebookUrl?: string;
+  @IsOptional() @IsString() instagramUrl?: string;
+  @IsOptional() @IsString() @MaxLength(30) whatsappNumber?: string;
 
   // ── Theme config ──────────────────────────────────────────────────────────
-
   @IsOptional()
   @IsObject()
   @ValidateNested()
@@ -271,14 +126,15 @@ export class UpsertStoreDto {
   themeConfig?: ThemeConfigDto;
 
   // ── SEO ───────────────────────────────────────────────────────────────────
-
   @IsOptional()
   @IsObject()
   @ValidateNested()
   @Type(() => StoreSeoDto)
   seo?: StoreSeoDto;
 }
-// apps/api/src/modules/storefront/dto/upsert-store.dto.ts
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+// /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+// // apps/api/src/modules/storefront/dto/upsert-store.dto.ts
 // import {
 //   IsString,
 //   IsOptional,
@@ -290,7 +146,7 @@ export class UpsertStoreDto {
 //   IsObject,
 //   ValidateNested,
 // } from 'class-validator';
-// import { Type } from 'class-transformer';
+// import { Type, Transform } from 'class-transformer';
 
 // // ─── SEO sub-DTO ──────────────────────────────────────────────────────────────
 
@@ -388,9 +244,8 @@ export class UpsertStoreDto {
 //   showRatings?: boolean;
 
 //   @IsOptional()
-//   @IsString()
 //   @MaxLength(300)
-//   announcement?: string | null;
+//   announcement?: string | null; // no @IsString — must accept null
 
 //   @IsOptional()
 //   @IsString()
@@ -423,10 +278,28 @@ export class UpsertStoreDto {
 
 //   // Hero slides and categories are arrays of objects — validated loosely
 //   // to avoid coupling the DTO to the client type system
+//   // Hero slides — use @Transform to pass the raw value through untouched.
+//   // Without this, class-transformer strips all object properties from each
+//   // array element (because there is no @Type(() => HeroSlideDto)), turning
+//   // [{id, mediaUrl, ...}] into [{}] or [[]] depending on the version.
 //   @IsOptional()
+//   @Transform(({ value }) => {
+//     if (!Array.isArray(value)) return [];
+//     // Keep only entries that are plain objects with an id string
+//     return value.filter(
+//       (s) =>
+//         s !== null &&
+//         typeof s === 'object' &&
+//         !Array.isArray(s) &&
+//         typeof s['id'] === 'string',
+//     );
+//   })
 //   heroSlides?: any[];
 
 //   @IsOptional()
+//   @Transform(({ value }) =>
+//     Array.isArray(value) ? value.filter((s) => typeof s === 'string') : [],
+//   )
 //   categories?: string[];
 // }
 
