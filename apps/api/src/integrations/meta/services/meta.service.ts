@@ -174,10 +174,17 @@ export class MetaService {
     const userId = senderId;
     const pageId = recipientId;
 
+    // const rawChannels = await this.channels.find({
+    //   where: [
+    //     { pageId, status: 'ACTIVE' as any },
+    //     { externalAccountId: pageId, status: 'ACTIVE' as any },
+    //   ],
+    // });
     const rawChannels = await this.channels.find({
       where: [
         { pageId, status: 'ACTIVE' as any },
         { externalAccountId: pageId, status: 'ACTIVE' as any },
+        { igBusinessId: pageId, status: 'ACTIVE' as any }, // ← Instagram DMs
       ],
     });
 

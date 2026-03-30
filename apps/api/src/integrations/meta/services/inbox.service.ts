@@ -47,6 +47,8 @@ export class InboxService {
 
     if (channelType === 'WHATSAPP') {
       return this.sendWhatsappMessage(convo, text, orgId);
+    } else if (channelType === 'INSTAGRAM') {
+      return this.sendInstagramMessage(convo, text, orgId);
     } else {
       return this.sendMessengerMessage(convo, text, orgId);
     }
@@ -66,6 +68,26 @@ export class InboxService {
     );
   }
 
+  private async sendInstagramMessage(convo: any, text: string, orgId: string) {
+    // The INSTAGRAM channel stores the parent page token in accessTokenEnc
+    // and igBusinessId in externalAccountId (set during upsertChannel)
+    const pageToken = this.decrypt(convo.channel.accessTokenEnc);
+    const igUserId = convo.channel.externalAccountId; // the IG Business Account ID
+
+    await firstValueFrom(
+      this.http.post(
+        `https://graph.facebook.com/v19.0/${igUserId}/messages`,
+        {
+          recipient: { id: convo.externalUserId },
+          message: { text },
+          messaging_product: 'instagram',
+        },
+        { params: { access_token: pageToken } },
+      ),
+    );
+
+    return this.saveAndEmit(convo.id, orgId, text);
+  }
   private async sendMessengerMessage(convo: any, text: string, orgId: string) {
     const pageToken = this.decrypt(convo.channel.accessTokenEnc);
 
