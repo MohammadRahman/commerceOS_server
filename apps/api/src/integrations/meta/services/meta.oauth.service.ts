@@ -61,6 +61,8 @@ export class MetaOAuthService {
       'pages_messaging',
       'pages_read_engagement',
       'pages_manage_engagement',
+      'instagram_basic',
+      'instagram_manage_messages',
     ].join(',');
 
     const state = this.signState({
@@ -209,7 +211,7 @@ export class MetaOAuthService {
     const url = new URL('https://graph.facebook.com/v19.0/me/accounts');
     url.searchParams.set(
       'fields',
-      'id,name,access_token,instagram_business_account{id,username}',
+      'id,name,access_token,instagram_business_account{id,username, name}',
     );
     url.searchParams.set('access_token', userToken);
 
