@@ -145,17 +145,59 @@ export class StorefrontService {
 
         // Sanitize heroSlides — filter out anything that isn't a valid slide object
         // Guards against corrupted data ([[], [], []] from old saves)
-        const rawSlides = nextTheme.heroSlides ?? prevTheme.heroSlides ?? [];
-        const cleanSlides = Array.isArray(rawSlides)
-          ? rawSlides.filter(
-              (s: any) =>
-                s !== null &&
-                typeof s === 'object' &&
-                !Array.isArray(s) &&
-                typeof s.id === 'string' &&
-                s.id.length > 0,
-            )
-          : [];
+        // const rawSlides = nextTheme.heroSlides ?? prevTheme.heroSlides ?? [];
+        // const cleanSlides = Array.isArray(rawSlides)
+        //   ? rawSlides.filter(
+        //       (s: any) =>
+        //         s !== null &&
+        //         typeof s === 'object' &&
+        //         !Array.isArray(s) &&
+        //         typeof s.id === 'string' &&
+        //         s.id.length > 0,
+        //     )
+        //   : [];
+
+        // this.logger.log(`[upsert] cleanSlides count: ${cleanSlides.length}`);
+
+        // update.themeConfig = {
+        //   ...prevTheme,
+        //   ...nextTheme,
+        //   heroSlides: cleanSlides,
+        // };
+        // Sanitize heroSlides — filter corrupt entries only
+        const incomingSlides = nextTheme.heroSlides;
+        const prevSlides = prevTheme.heroSlides ?? [];
+
+        const sanitize = (arr: any[]): any[] =>
+          arr.filter(
+            (s: any) =>
+              s !== null &&
+              typeof s === 'object' &&
+              !Array.isArray(s) &&
+              typeof s.id === 'string' &&
+              s.id.length > 0,
+          );
+
+        let cleanSlides: any[];
+
+        if (Array.isArray(incomingSlides)) {
+          const filtered = sanitize(incomingSlides);
+          // If the client explicitly sent slides, use them (even if empty array
+          // means "clear all slides"). But if filtered result is empty AND the
+          // raw incoming array was non-empty, it means all entries were corrupt
+          // — fall back to previous slides to avoid data loss.
+          if (filtered.length === 0 && incomingSlides.length > 0) {
+            this.logger.warn(
+              `[upsert] All ${incomingSlides.length} incoming slides were invalid — keeping previous ${prevSlides.length} slides`,
+            );
+            cleanSlides = sanitize(prevSlides);
+          } else {
+            cleanSlides = filtered;
+          }
+        } else {
+          // heroSlides not sent at all — keep previous
+          cleanSlides = sanitize(prevSlides);
+        }
 
         this.logger.log(`[upsert] cleanSlides count: ${cleanSlides.length}`);
 
@@ -164,7 +206,6 @@ export class StorefrontService {
           ...nextTheme,
           heroSlides: cleanSlides,
         };
-
         this.logger.log(
           `[upsert] themeConfig.heroSlides being written: ${JSON.stringify(update.themeConfig.heroSlides)}`,
         );
