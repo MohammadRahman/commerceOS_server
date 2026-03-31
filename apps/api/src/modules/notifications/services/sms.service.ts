@@ -43,6 +43,10 @@ export class SmsService {
     }
   }
 
+  async sendRaw(to: string, message: string): Promise<void> {
+    return this.send(to, message);
+  }
+
   async sendPasswordResetLink(params: {
     to: string;
     name: string;

@@ -50,6 +50,10 @@ export class EmailService {
     }
   }
 
+  async sendRaw(options: SendEmailOptions): Promise<void> {
+    return this.send(options);
+  }
+
   // ── Transactional templates ───────────────────────────────────────────────
 
   async sendPasswordResetLink(params: {

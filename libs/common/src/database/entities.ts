@@ -18,6 +18,9 @@ import { PaymentProviderCatalogEntity } from '../../../../apps/api/src/modules/p
 import { CourierProviderCatalogEntity } from '../../../../apps/api/src/modules/providers/entities/courier-provider-catalog.entity';
 import { IdempotencyKeyEntity } from '../idempotency';
 import { OutboxEventEntity } from '../outbox';
+import { SubscriptionPaymentEntity } from 'apps/api/src/modules/subscriptions/entities/subscription-payment.entity';
+import { AutoReplyRuleEntity } from 'apps/api/src/modules/comments/entities/auto-reply-rule.entity';
+import { PostCommentEntity } from 'apps/api/src/modules/comments/entities/post-comment.entity';
 
 export const ALL_ENTITIES = [
   OrganizationEntity,
@@ -46,6 +49,9 @@ export const ALL_ENTITIES = [
 
   OutboxEventEntity,
   IdempotencyKeyEntity,
+  PostCommentEntity,
+  AutoReplyRuleEntity,
+  SubscriptionPaymentEntity,
 ] as const;
 // import { ChannelEntity } from 'apps/api/src/modules/inbox/entities/channel.entity';
 // import { ConversationEntity } from 'apps/api/src/modules/inbox/entities/conversation.entity';

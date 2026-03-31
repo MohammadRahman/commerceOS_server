@@ -123,9 +123,14 @@ export class SubscriptionService {
     const isTrialActive =
       trialDaysRemaining > 0 && sub.status === SubscriptionStatus.TRIAL;
 
+    const paymentsWithCheckout = payments.map((p) => ({
+      ...p,
+      checkoutUrl: (p.rawPayload as any)?.checkoutUrl ?? null,
+    }));
+
     return {
       ...sub,
-      payments,
+      payments: paymentsWithCheckout,
       trialDaysRemaining,
       isTrialActive,
       isTrialExpired:

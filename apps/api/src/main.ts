@@ -10,6 +10,7 @@ import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { SentryFilter } from './sentry.filter';
 import { VersionInterceptor } from './version.interceptor';
+import { setupBullBoard } from 'apps/worker/src/processors/bull-board.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -19,6 +20,8 @@ async function bootstrap() {
   // ──── Sentry ───────────────────────────────────────────────────
   const { httpAdapter } = app.get(HttpAdapterHost);
   app.useGlobalFilters(new SentryFilter(httpAdapter));
+
+  setupBullBoard(app);
   // ── 1. Helmet — HTTP security headers ─────────────────────────────────────
   app.use(
     helmet({
