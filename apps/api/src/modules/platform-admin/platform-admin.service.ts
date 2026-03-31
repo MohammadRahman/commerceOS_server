@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -5,7 +6,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, MoreThanOrEqual } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
@@ -73,8 +74,12 @@ export class PlatformAdminService {
       this.orgs.count({ where: { isActive: true } as any }),
       this.users.count(),
       this.orders.count(),
-      this.orgs.count({ where: { createdAt: { $gte: monthStart } } as any }),
-      this.orders.count({ where: { createdAt: { $gte: monthStart } } as any }),
+      this.orgs.count({
+        where: { createdAt: MoreThanOrEqual(monthStart) },
+      } as any),
+      this.orders.count({
+        where: { createdAt: MoreThanOrEqual(monthStart) },
+      } as any),
     ]);
 
     // Revenue from orders
