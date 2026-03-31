@@ -26,6 +26,7 @@ import { CommentsModule } from './modules/comments/comments.module';
 import { LiveSaleModule } from './modules/live-sale/live-sale.module';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
 import { SubscriptionModule } from './modules/subscriptions/subscriptions.module';
+import { BullBoardModule } from './bull-board.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { SubscriptionModule } from './modules/subscriptions/subscriptions.module
     LiveSaleModule,
     PlatformAdminModule,
     SubscriptionModule,
+    BullBoardModule,
   ],
 })
 export class AppModule {}
