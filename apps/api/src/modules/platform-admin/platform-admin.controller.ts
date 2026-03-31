@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // apps/api/src/modules/platform-admin/platform-admin.controller.ts
 
 import {
