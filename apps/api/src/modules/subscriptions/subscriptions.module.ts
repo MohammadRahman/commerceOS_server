@@ -13,6 +13,7 @@ import { SubscriptionPaymentEntity } from './entities/subscription-payment.entit
 import { OrganizationEntity } from '../tenancy/entities/organization.entity';
 import { OrgPaymentProviderEntity } from '../providers/entities/org-payment-provider.entity';
 import { UploadModule } from '@app/common/upload/upload.module';
+import { OutboxModule } from '@app/common';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { UploadModule } from '@app/common/upload/upload.module';
       OrgPaymentProviderEntity,
     ]),
     UploadModule,
+    OutboxModule,
   ],
   controllers: [SubscriptionController],
   providers: [SubscriptionService, SubscriptionScheduler],
