@@ -25,7 +25,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { LiveSaleModule } from './modules/live-sale/live-sale.module';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
-import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { SubscriptionModule } from './modules/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -59,7 +59,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
     CommentsModule,
     LiveSaleModule,
     PlatformAdminModule,
-    SubscriptionsModule,
+    SubscriptionModule,
   ],
 })
 export class AppModule {}
