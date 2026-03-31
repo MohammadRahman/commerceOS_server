@@ -1,10 +1,12 @@
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // apps/api/src/workers/webhooks.processor.ts
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job, UnrecoverableError } from 'bullmq';
+import { Job } from 'bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { QUEUE_NAMES, WEBHOOK_JOBS } from '@app/common/queue/queue.constants';
-import { MetaService } from '../integrations/meta/services/meta.service';
-import { SubscriptionService } from '../modules/subscriptions/subscription.service';
+import { MetaService } from 'apps/api/src/integrations/meta/services/meta.service';
+import { SubscriptionService } from 'apps/api/src/modules/subscriptions/subscription.service';
 
 @Processor(QUEUE_NAMES.WEBHOOKS, { concurrency: 20 })
 @Injectable()
@@ -14,7 +16,9 @@ export class WebhooksProcessor extends WorkerHost {
   constructor(
     private readonly meta: MetaService,
     private readonly subscriptions: SubscriptionService,
-  ) { super(); }
+  ) {
+    super();
+  }
 
   async process(job: Job): Promise<void> {
     this.logger.debug(`[Webhooks] Processing ${job.name} id=${job.id}`);
@@ -35,13 +39,22 @@ export class WebhooksProcessor extends WorkerHost {
     await this.meta.ingestWebhook(data.body);
   }
 
-  private async handlePayment(data: { provider: string; orgId: string; payload: any }) {
+  private async handlePayment(data: {
+    provider: string;
+    orgId: string;
+    payload: any;
+  }) {
     // Handled by PaymentsService.handleProviderWebhook
     // Import PaymentsService here if needed
-    this.logger.log(`[Webhooks] Payment webhook from ${data.provider} for org ${data.orgId}`);
+    this.logger.log(
+      `[Webhooks] Payment webhook from ${data.provider} for org ${data.orgId}`,
+    );
   }
 
-  private async handleSubscriptionWebhook(data: { provider: string; payload: any }) {
+  private async handleSubscriptionWebhook(data: {
+    provider: string;
+    payload: any;
+  }) {
     await this.subscriptions.handleWebhook(data.provider, data.payload);
   }
 }
