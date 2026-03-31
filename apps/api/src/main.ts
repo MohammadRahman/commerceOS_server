@@ -21,7 +21,6 @@ async function bootstrap() {
   const { httpAdapter } = app.get(HttpAdapterHost);
   app.useGlobalFilters(new SentryFilter(httpAdapter));
 
-  setupBullBoard(app);
   // ── 1. Helmet — HTTP security headers ─────────────────────────────────────
   app.use(
     helmet({
@@ -107,6 +106,8 @@ async function bootstrap() {
     });
   }
 
+  await app.init();
+  setupBullBoard(app);
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   console.log(
