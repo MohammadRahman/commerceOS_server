@@ -10,7 +10,7 @@ import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { SentryFilter } from './sentry.filter';
 import { VersionInterceptor } from './version.interceptor';
-import { setupBullBoard } from 'apps/worker/src/processors/bull-board.setup';
+import { setupBullBoard } from 'apps/worker/src/workers/bull-board.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -106,9 +106,9 @@ async function bootstrap() {
     });
   }
 
+  const port = process.env.PORT ?? 3000;
   await app.init();
   setupBullBoard(app);
-  const port = process.env.PORT ?? 3000;
   await app.listen(port);
   console.log(
     `🚀 API running on :${port} [${process.env.NODE_ENV ?? 'development'}]`,
@@ -116,6 +116,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-
-// e4c88f8d-464b-41cd-9954-fdc380e5fea8
-// e4c88f8d-464b-52dc-1042-fbe130f6gbe6

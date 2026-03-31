@@ -35,7 +35,7 @@ import { MetaModule } from 'apps/api/src/integrations/meta/meta.module';
 import { SubscriptionModule } from 'apps/api/src/modules/subscriptions/subscriptions.module';
 import { NotificationsModule } from 'apps/api/src/modules/notifications/notifications.module';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { OutboxBridgeService } from './outbox-bridge.service';
 
 @Module({
@@ -48,6 +48,24 @@ import { OutboxBridgeService } from './outbox-bridge.service';
     MetaModule,
     UploadModule,
     HttpModule,
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const url = config.getOrThrow<string>('REDIS_URL');
+        const parsed = new URL(url);
+        return {
+          connection: {
+            host: parsed.hostname,
+            port: Number(parsed.port) || 6379,
+            password: parsed.password || undefined,
+            username: parsed.username || undefined,
+            tls: url.startsWith('rediss://') ? {} : undefined,
+            maxRetriesPerRequest: null,
+          },
+        };
+      },
+    }),
     ...Object.values(QUEUE_NAMES).map((name) =>
       BullModule.registerQueue({ name }),
     ),
@@ -67,6 +85,7 @@ import { OutboxBridgeService } from './outbox-bridge.service';
     RedxProvider,
     // Queue
     QueueService,
+    OutboxBridgeService,
     NotificationsProcessor,
     WebhooksProcessor,
     SubscriptionsProcessor,
