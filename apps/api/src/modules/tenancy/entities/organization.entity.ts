@@ -45,4 +45,12 @@ export class OrganizationEntity extends AbstractEntity<OrganizationEntity> {
   @Index()
   @Column({ type: 'char', length: 2, name: 'country_code', default: 'BD' })
   countryCode: string;
+
+  @Column({
+    type: 'timestamptz',
+    nullable: true,
+    name: 'trial_started_at',
+    default: () => 'NOW()',
+  })
+  trialStartedAt?: Date;
 }
