@@ -24,6 +24,7 @@ import { StorefrontModule } from './modules/storefront/storefront.module';
 import { AiModule } from './modules/ai/ai.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { LiveSaleModule } from './modules/live-sale/live-sale.module';
+import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { LiveSaleModule } from './modules/live-sale/live-sale.module';
     AiModule,
     CommentsModule,
     LiveSaleModule,
+    PlatformAdminModule,
   ],
 })
 export class AppModule {}

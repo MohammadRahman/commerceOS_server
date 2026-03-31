@@ -4,6 +4,7 @@ export type JwtAccessPayload = {
   role: string;
   jti: string; // token id (for tracing)
   typ: 'access';
+  isPlatformAdmin?: boolean; // only for platform admins, never true for regular users
 };
 
 export type JwtRefreshPayload = {

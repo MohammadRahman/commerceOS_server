@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
@@ -22,6 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       userId: payload.sub,
       orgId: payload.orgId,
       role: payload.role,
+      isPlatformAdmin: payload.isPlatformAdmin ?? false,
     };
   }
 }
