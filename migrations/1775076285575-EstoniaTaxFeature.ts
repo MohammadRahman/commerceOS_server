@@ -4,29 +4,53 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
   name = 'EstoniaTaxFeature1775076285575';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // ─── ENUMS ─────────────────────────────────────────────
+    // ─── ENUMS (SAFE CREATION) ─────────────────────────────
 
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "tax_period_status_enum" AS ENUM (
-        'PENDING', 'READY', 'SUBMITTED', 'ACCEPTED', 'REJECTED'
-      )
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tax_period_status_enum') THEN
+          CREATE TYPE "tax_period_status_enum" AS ENUM (
+            'PENDING', 'READY', 'SUBMITTED', 'ACCEPTED', 'REJECTED'
+          );
+        END IF;
+      END
+      $$;
     `);
 
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "vat_transaction_type_enum" AS ENUM (
-        'SALE', 'PURCHASE', 'INTRA_EU_SUPPLY', 'INTRA_EU_ACQUISITION',
-        'EXPORT', 'IMPORT', 'REVERSE_CHARGE'
-      )
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'vat_transaction_type_enum') THEN
+          CREATE TYPE "vat_transaction_type_enum" AS ENUM (
+            'SALE', 'PURCHASE', 'INTRA_EU_SUPPLY', 'INTRA_EU_ACQUISITION',
+            'EXPORT', 'IMPORT', 'REVERSE_CHARGE'
+          );
+        END IF;
+      END
+      $$;
     `);
 
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "submission_status_enum" AS ENUM (
-        'DRAFT', 'QUEUED', 'SENT', 'ACCEPTED', 'REJECTED', 'AMENDED'
-      )
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'submission_status_enum') THEN
+          CREATE TYPE "submission_status_enum" AS ENUM (
+            'DRAFT', 'QUEUED', 'SENT', 'ACCEPTED', 'REJECTED', 'AMENDED'
+          );
+        END IF;
+      END
+      $$;
     `);
 
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "tax_form_type_enum" AS ENUM ('KMD', 'TSD')
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tax_form_type_enum') THEN
+          CREATE TYPE "tax_form_type_enum" AS ENUM ('KMD', 'TSD');
+        END IF;
+      END
+      $$;
     `);
 
     // ─── estonia_tax_periods ─────────────────────────────
