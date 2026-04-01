@@ -40,6 +40,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'access:read',
     'access:write',
     'shipments:write',
+    'bookkeeping:write',
   ],
 
   // ── ADMIN: team mgmt + view-only integrations, NO billing/security/access ─
