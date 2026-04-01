@@ -11,16 +11,18 @@ import {
   EstoniaTaxSubmission,
 } from './entities/estonia-tax.entities';
 import { EstoniaVatService } from './services/vat.service';
-import { EstoniaTsdService } from './services/tsd.service';
-import { EstoniaXmlBuilderService } from './services/xml-builder.service';
+import { ESTONIA_TAX_QUEUE_NAMES } from './estonia-tax.constants';
+import { EstoniaTaxController } from './estonia-tax.controller';
 import { EstoniaEmtaGatewayService } from './services/emta-gateway.service';
 import { EstoniaTaxDeadlineService } from './services/tax-deadline.service';
-import { EstoniaTaxController } from './estonia-tax.controller';
-import { ESTONIA_TAX_QUEUE_NAMES } from './estonia-tax.constants';
+import { EstoniaTsdService } from './services/tsd.service';
+import { EstoniaXmlBuilderService } from './services/xml-builder.service';
+import { Organization } from '../organizations/entities/organization.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      Organization,
       EstoniaTaxPeriod,
       EstoniaVatTransaction,
       EstoniaEmployeeTaxRecord,
