@@ -176,7 +176,8 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
         "rejectionReason" text,
         "amendsSubmissionId" uuid,
 
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
 
         CONSTRAINT "PK_estonia_tax_submissions" PRIMARY KEY ("id")
       )

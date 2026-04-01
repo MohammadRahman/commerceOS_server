@@ -94,8 +94,8 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
         "defaultVatRate" numeric(5,2) NOT NULL DEFAULT 24,
         "isSoleTraderFie" boolean NOT NULL DEFAULT false,
         "paysAdvanceIncomeTax" boolean NOT NULL DEFAULT false,
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_bookkeeping_tax_profiles" PRIMARY KEY ("id")
       )
     `);
