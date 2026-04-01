@@ -58,7 +58,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_tax_periods" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "organizationId" uuid NOT NULL,
+        ""org_id"" uuid NOT NULL,
         "year" integer NOT NULL,
         "month" integer NOT NULL,
 
@@ -81,13 +81,13 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
 
         CONSTRAINT "PK_estonia_tax_periods" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_tax_period_org_year_month"
-          UNIQUE ("organizationId", "year", "month")
+          UNIQUE (""org_id"", "year", "month")
       )
     `);
 
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_tax_periods_org_period"
-      ON "estonia_tax_periods" ("organizationId", "year", "month")
+      ON "estonia_tax_periods" (""org_id"", "year", "month")
     `);
 
     // ─── estonia_vat_transactions ─────────────────────────
@@ -95,7 +95,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_vat_transactions" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "organizationId" uuid NOT NULL,
+        ""org_id"" uuid NOT NULL,
         "taxYear" integer NOT NULL,
         "taxMonth" integer NOT NULL,
 
@@ -120,7 +120,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_vat_tx_org_period"
-      ON "estonia_vat_transactions" ("organizationId", "taxYear", "taxMonth")
+      ON "estonia_vat_transactions" (""org_id"", "taxYear", "taxMonth")
     `);
 
     // ─── estonia_employee_tax_records ─────────────────────
@@ -128,7 +128,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_employee_tax_records" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "organizationId" uuid NOT NULL,
+        ""org_id"" uuid NOT NULL,
         "taxYear" integer NOT NULL,
         "taxMonth" integer NOT NULL,
 
@@ -151,7 +151,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
 
         CONSTRAINT "PK_estonia_employee_tax_records" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_employee_tax_per_period"
-          UNIQUE ("organizationId", "taxYear", "taxMonth", "employeeIdCode")
+          UNIQUE (""org_id"", "taxYear", "taxMonth", "employeeIdCode")
       )
     `);
 
@@ -160,7 +160,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_tax_submissions" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "organizationId" uuid NOT NULL,
+        ""org_id"" uuid NOT NULL,
 
         "formType" "tax_form_type_enum" NOT NULL,
         "taxYear" integer NOT NULL,
@@ -184,7 +184,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_tax_submissions_org_period"
-      ON "estonia_tax_submissions" ("organizationId", "formType", "taxYear", "taxMonth")
+      ON "estonia_tax_submissions" (""org_id"", "formType", "taxYear", "taxMonth")
     `);
   }
 

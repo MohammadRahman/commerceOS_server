@@ -15,6 +15,7 @@ import {
   Index,
 } from 'typeorm';
 import { Organization } from '../../organizations/entities/organization.entity';
+import { OrganizationEntity } from '../../tenancy/entities/organization.entity';
 
 // ─── TaxProfile ───────────────────────────────────────────────────────────────
 // Set once during onboarding. Controls which taxes apply, which EMTA forms
@@ -151,9 +152,9 @@ export class BookkeepingEntry {
   @Column('uuid')
   organizationId: string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'org_id' })
+  organization: OrganizationEntity;
 
   // ── When ──────────────────────────────────────────────────────────────────
   @Column({ type: 'date' })

@@ -22,11 +22,11 @@ import { Organization } from '../organizations/entities/organization.entity';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Organization,
       EstoniaTaxPeriod,
       EstoniaVatTransaction,
       EstoniaEmployeeTaxRecord,
       EstoniaTaxSubmission,
+      Organization,
     ]),
     BullModule.registerQueue(
       { name: ESTONIA_TAX_QUEUE_NAMES.VAT_FILING },

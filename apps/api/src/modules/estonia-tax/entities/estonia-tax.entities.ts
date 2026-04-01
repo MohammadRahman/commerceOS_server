@@ -12,6 +12,7 @@ import {
   Index,
 } from 'typeorm';
 import { Organization } from '../../organizations/entities/organization.entity';
+import { OrganizationEntity } from '../../tenancy/entities/organization.entity';
 
 // ─── TaxPeriod ────────────────────────────────────────────────────────────────
 // One record per organization per month. Tracks whether KMD and TSD have
@@ -265,9 +266,9 @@ export class EstoniaTaxSubmission {
   @Column('uuid')
   organizationId: string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'org_id' })
+  organization: OrganizationEntity;
 
   @Column({ type: 'enum', enum: TaxFormType })
   formType: TaxFormType;
