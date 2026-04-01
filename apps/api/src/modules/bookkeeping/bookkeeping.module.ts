@@ -16,9 +16,11 @@ import { MonthEndService } from './services/month-end.service';
 import { TaxProfileService } from './services/tax-profile.service';
 import { BookkeepingController } from './bookkeeping.controller';
 import { ESTONIA_TAX_QUEUE_NAMES } from '../estonia-tax/estonia-tax.constants';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
+    AiModule,
     TypeOrmModule.forFeature([
       BookkeepingEntry,
       MonthlyTaxPeriod,
