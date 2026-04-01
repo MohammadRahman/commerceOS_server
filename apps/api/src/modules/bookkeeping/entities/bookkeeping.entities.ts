@@ -37,10 +37,10 @@ export enum VatRegistrationStatus {
 @Entity('bookkeeping_tax_profiles')
 export class TaxProfile extends AbstractEntity<TaxProfile> {
   @Column('uuid', { unique: true })
-  'orgId': string;
+  orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: '"org_id"' })
+  @JoinColumn({ name: 'org_id' })
   organization: OrganizationEntity;
 
   @Column({ type: 'enum', enum: BusinessPersona })
@@ -243,10 +243,10 @@ export enum PeriodStatus {
 }
 
 @Entity('bookkeeping_monthly_periods')
-@Index(['"org_id"', 'year', 'month'], { unique: true })
+@Index(['orgId', 'year', 'month'], { unique: true })
 export class MonthlyTaxPeriod extends AbstractEntity<MonthlyTaxPeriod> {
   @Column('uuid')
-  'orgId': string;
+  orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: '"org_id"' })
@@ -349,13 +349,13 @@ export interface TaxBreakdown {
 // Linked to BookkeepingEntry (type=SALARY) for the actual monthly amounts.
 
 @Entity('bookkeeping_employees')
-@Index(['"orgId"', 'isActive'])
+@Index(['orgId', 'isActive'])
 export class EmployeeRecord extends AbstractEntity<EmployeeRecord> {
   @Column('uuid')
-  'orgId': string;
+  orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: '"org_id"' })
+  @JoinColumn({ name: 'org_id' })
   organization: OrganizationEntity;
 
   @Column()
