@@ -76,8 +76,8 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
         "tsdUnemploymentEmployee" numeric(12,2) NOT NULL DEFAULT 0,
         "tsdFundedPensionII" numeric(12,2) NOT NULL DEFAULT 0,
 
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
 
         CONSTRAINT "PK_estonia_tax_periods" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_tax_period_org_year_month"
@@ -112,7 +112,8 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
         "grossAmount" numeric(12,2) NOT NULL,
 
         "transactionDate" date NOT NULL,
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
 
         CONSTRAINT "PK_estonia_vat_transactions" PRIMARY KEY ("id")
       )
@@ -146,8 +147,8 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
         "unemploymentEmployee" numeric(12,2) NOT NULL,
         "fundedPensionII" numeric(12,2) NOT NULL,
 
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
 
         CONSTRAINT "PK_estonia_employee_tax_records" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_employee_tax_per_period"

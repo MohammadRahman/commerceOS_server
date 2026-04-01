@@ -113,8 +113,8 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
         "isActive" boolean NOT NULL DEFAULT true,
         "email" varchar,
         "bankAccount" varchar,
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_bookkeeping_employees" PRIMARY KEY ("id")
       )
     `);
@@ -156,8 +156,8 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
         "notes" varchar,
         "createdByUserId" uuid,
 
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
 
         CONSTRAINT "PK_bookkeeping_entries" PRIMARY KEY ("id")
       )
@@ -200,8 +200,8 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
         "filedAt" TIMESTAMP,
         "filedByUserId" uuid,
 
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
 
         CONSTRAINT "PK_bookkeeping_monthly_periods" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_period_org_year_month"
