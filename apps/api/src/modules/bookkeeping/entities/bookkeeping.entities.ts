@@ -134,11 +134,11 @@ export enum SourceType {
 }
 
 @Entity('bookkeeping_entries')
-@Index(['"orgId"', 'taxYear', 'taxMonth'])
-@Index(['"orgId"', 'entryType', 'date'])
+@Index('IDX_entries_org_period', ['orgId', 'taxYear', 'taxMonth'])
+@Index('IDX_entries_org_type_date', ['orgId', 'entryType', 'date'])
 export class BookkeepingEntry extends AbstractEntity<BookkeepingEntry> {
   @Column('uuid')
-  'orgId': string;
+  orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'org_id' })
