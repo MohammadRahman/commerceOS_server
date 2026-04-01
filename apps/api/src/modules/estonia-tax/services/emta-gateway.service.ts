@@ -54,7 +54,7 @@ export class EstoniaEmtaGatewayService {
   ): Promise<EstoniaTaxSubmission> {
     // Always persist the submission record first (draft)
     const submission = this.submissionRepo.create({
-      organizationId,
+      orgId: organizationId,
       formType,
       taxYear,
       taxMonth,
@@ -220,7 +220,7 @@ export class EstoniaEmtaGatewayService {
     organizationId: string,
   ): Promise<string> {
     const sub = await this.submissionRepo.findOneOrFail({
-      where: { id: submissionId, organizationId },
+      where: { id: submissionId, orgId: organizationId },
       select: ['xmlPayload'],
     });
     return sub.xmlPayload;

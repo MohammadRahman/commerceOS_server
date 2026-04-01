@@ -96,7 +96,7 @@ export class EstoniaVatService {
   // ─── Record transaction ───────────────────────────────────────────────────
 
   async recordTransaction(
-    organizationId: string,
+    orgId: string,
     dto: RecordVatTransactionDto,
   ): Promise<EstoniaVatTransaction> {
     // Validate VAT rate is a known Estonian rate
@@ -108,7 +108,7 @@ export class EstoniaVatService {
     }
 
     const tx = this.vatTxRepo.create({
-      organizationId,
+      orgId,
       taxYear: dto.taxYear,
       taxMonth: dto.taxMonth,
       transactionType: dto.transactionType,
@@ -127,11 +127,9 @@ export class EstoniaVatService {
     const saved = await this.vatTxRepo.save(tx);
 
     // Recalculate period totals asynchronously
-    this.recalculatePeriodTotals(
-      organizationId,
-      dto.taxYear,
-      dto.taxMonth,
-    ).catch((err) => this.logger.error('Period recalculation failed', err));
+    this.recalculatePeriodTotals(orgId, dto.taxYear, dto.taxMonth).catch(
+      (err) => this.logger.error('Period recalculation failed', err),
+    );
 
     return saved;
   }
@@ -140,16 +138,16 @@ export class EstoniaVatService {
   // Called after each transaction save and before KMD generation.
 
   async recalculatePeriodTotals(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
   ): Promise<EstoniaTaxPeriod> {
     let period = await this.periodRepo.findOne({
-      where: { organizationId, year, month },
+      where: { orgId, year, month },
     });
     if (!period) {
       period = this.periodRepo.create({
-        organizationId,
+        orgId,
         year,
         month,
         kmdStatus: TaxPeriodStatus.PENDING,
@@ -158,7 +156,7 @@ export class EstoniaVatService {
     }
 
     const transactions = await this.vatTxRepo.find({
-      where: { organizationId, taxYear: year, taxMonth: month },
+      where: { orgId, taxYear: year, taxMonth: month },
     });
 
     let outputVat = 0;
@@ -205,7 +203,7 @@ export class EstoniaVatService {
   // Returns grouped totals per counterparty VAT number.
 
   async getKmdInfPartners(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
   ): Promise<
@@ -218,7 +216,7 @@ export class EstoniaVatService {
   > {
     const rawTx = await this.vatTxRepo.find({
       where: {
-        organizationId,
+        orgId,
         taxYear: year,
         taxMonth: month,
         transactionType: VatTransactionType.SALE,
@@ -256,12 +254,9 @@ export class EstoniaVatService {
   // ─── Annual turnover check ────────────────────────────────────────────────
   // Returns YTD turnover so the UI can warn when approaching the €40k threshold.
 
-  async getAnnualTurnover(
-    organizationId: string,
-    year: number,
-  ): Promise<number> {
+  async getAnnualTurnover(orgId: string, year: number): Promise<number> {
     const transactions = await this.vatTxRepo.find({
-      where: { organizationId, taxYear: year },
+      where: { orgId, taxYear: year },
     });
 
     return transactions
@@ -276,10 +271,10 @@ export class EstoniaVatService {
   }
 
   async isApproachingVatThreshold(
-    organizationId: string,
+    orgId: string,
     year: number,
   ): Promise<boolean> {
-    const turnover = await this.getAnnualTurnover(organizationId, year);
+    const turnover = await this.getAnnualTurnover(orgId, year);
     // Warn at 80% of threshold
     return turnover >= ESTONIA_VAT_REGISTRATION_THRESHOLD_EUR * 0.8;
   }

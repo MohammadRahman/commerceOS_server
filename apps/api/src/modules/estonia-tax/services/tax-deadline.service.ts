@@ -127,7 +127,7 @@ export class EstoniaTaxDeadlineService {
 
     for (const period of pendingPeriods) {
       await this.reminderQueue.add('tsd-reminder', {
-        organizationId: period.organizationId,
+        organizationId: period.orgId,
         formType: 'TSD',
         taxYear: priorYear,
         taxMonth: priorMonth,
@@ -162,7 +162,7 @@ export class EstoniaTaxDeadlineService {
 
     for (const period of pendingPeriods) {
       await this.reminderQueue.add('kmd-reminder', {
-        organizationId: period.organizationId,
+        organizationId: period.orgId,
         formType: 'KMD',
         taxYear: priorYear,
         taxMonth: priorMonth,

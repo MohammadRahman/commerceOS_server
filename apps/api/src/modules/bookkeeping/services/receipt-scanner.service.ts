@@ -115,7 +115,7 @@ export class ReceiptScannerService {
   // ─── Main scan entry point ────────────────────────────────────────────────
 
   async scanReceipt(
-    organizationId: string,
+    orgId: string,
     dto: ScanReceiptDto,
     createdByUserId?: string,
   ): Promise<{ parsed: ReceiptParsedData; entry?: BookkeepingEntry }> {
@@ -123,7 +123,7 @@ export class ReceiptScannerService {
     const parsed = await this.extractReceiptData(base64, mimeType);
 
     this.logger.log(
-      `Receipt scanned for org ${organizationId} — ` +
+      `Receipt scanned for org ${orgId} — ` +
         `merchant: ${parsed.merchantName ?? 'unknown'}, ` +
         `amount: ${parsed.totalAmount ?? '?'}, ` +
         `confidence: ${parsed.confidence}`,
@@ -140,7 +140,7 @@ export class ReceiptScannerService {
     );
 
     const entry = await this.entryService.addExpense(
-      organizationId,
+      orgId,
       {
         date:
           parsed.receiptDate ??

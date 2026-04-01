@@ -11,8 +11,8 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { Organization } from '../../organizations/entities/organization.entity';
 import { OrganizationEntity } from '../../tenancy/entities/organization.entity';
+import { AbstractEntity } from '@app/common';
 
 // ─── TaxPeriod ────────────────────────────────────────────────────────────────
 // One record per organization per month. Tracks whether KMD and TSD have
@@ -32,17 +32,17 @@ export enum TaxFormType {
 }
 
 @Entity('estonia_tax_periods')
-@Index(['organizationId', 'year', 'month'], { unique: true })
+@Index(['orgId', 'year', 'month'], { unique: true })
 export class EstoniaTaxPeriod {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column('uuid')
-  organizationId: string;
+  orgId: string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'org_id' })
+  organization: OrganizationEntity;
 
   @Column('int')
   year: number;
@@ -118,17 +118,17 @@ export enum VatTransactionType {
 }
 
 @Entity('estonia_vat_transactions')
-@Index(['organizationId', 'taxYear', 'taxMonth'])
+@Index(['orgId', 'taxYear', 'taxMonth'])
 export class EstoniaVatTransaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column('uuid')
-  organizationId: string;
+  orgId: string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'org_id' })
+  organization: OrganizationEntity;
 
   @Column('int')
   taxYear: number;
@@ -178,7 +178,7 @@ export class EstoniaVatTransaction {
 // Monthly payroll record per employee. Used to build TSD Annex 1.
 
 @Entity('estonia_employee_tax_records')
-@Index(['organizationId', 'taxYear', 'taxMonth', 'employeeIdCode'], {
+@Index(['orgId', 'taxYear', 'taxMonth', 'employeeIdCode'], {
   unique: true,
 })
 export class EstoniaEmployeeTaxRecord {
@@ -186,11 +186,11 @@ export class EstoniaEmployeeTaxRecord {
   id: string;
 
   @Column('uuid')
-  organizationId: string;
+  orgId: string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'org_id' })
+  organization: OrganizationEntity;
 
   @Column('int')
   taxYear: number;
@@ -258,13 +258,10 @@ export enum SubmissionStatus {
 }
 
 @Entity('estonia_tax_submissions')
-@Index(['organizationId', 'formType', 'taxYear', 'taxMonth'])
-export class EstoniaTaxSubmission {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
+@Index(['orgId', 'formType', 'taxYear', 'taxMonth'])
+export class EstoniaTaxSubmission extends AbstractEntity<EstoniaTaxSubmission> {
   @Column('uuid')
-  organizationId: string;
+  orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'org_id' })
@@ -311,7 +308,4 @@ export class EstoniaTaxSubmission {
   // Links to previous submission if this is an amendment
   @Column({ nullable: true })
   amendsSubmissionId: string;
-
-  @CreateDateColumn()
-  createdAt: Date;
 }

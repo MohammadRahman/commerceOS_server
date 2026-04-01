@@ -14,8 +14,8 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { Organization } from '../../organizations/entities/organization.entity';
 import { OrganizationEntity } from '../../tenancy/entities/organization.entity';
+import { AbstractEntity } from '@app/common';
 
 // ─── TaxProfile ───────────────────────────────────────────────────────────────
 // Set once during onboarding. Controls which taxes apply, which EMTA forms
@@ -35,16 +35,13 @@ export enum VatRegistrationStatus {
 }
 
 @Entity('bookkeeping_tax_profiles')
-export class TaxProfile {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
+export class TaxProfile extends AbstractEntity<TaxProfile> {
   @Column('uuid', { unique: true })
-  organizationId: string;
+  'orgId': string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: '"org_id"' })
+  organization: OrganizationEntity;
 
   @Column({ type: 'enum', enum: BusinessPersona })
   persona: BusinessPersona;
@@ -81,12 +78,6 @@ export class TaxProfile {
   // Advance income tax — FIEs pay quarterly, OÜs on distribution
   @Column({ default: false })
   paysAdvanceIncomeTax: boolean;
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }
 
 // ─── BookkeepingEntry ─────────────────────────────────────────────────────────
@@ -143,14 +134,11 @@ export enum SourceType {
 }
 
 @Entity('bookkeeping_entries')
-@Index(['organizationId', 'taxYear', 'taxMonth'])
-@Index(['organizationId', 'entryType', 'date'])
-export class BookkeepingEntry {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
+@Index(['"orgId"', 'taxYear', 'taxMonth'])
+@Index(['"orgId"', 'entryType', 'date'])
+export class BookkeepingEntry extends AbstractEntity<BookkeepingEntry> {
   @Column('uuid')
-  organizationId: string;
+  'orgId': string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'org_id' })
@@ -220,12 +208,6 @@ export class BookkeepingEntry {
 
   @Column({ nullable: true })
   createdByUserId: string;
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }
 
 // Shape of OCR-extracted receipt data
@@ -261,17 +243,14 @@ export enum PeriodStatus {
 }
 
 @Entity('bookkeeping_monthly_periods')
-@Index(['organizationId', 'year', 'month'], { unique: true })
-export class MonthlyTaxPeriod {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
+@Index(['"org_id"', 'year', 'month'], { unique: true })
+export class MonthlyTaxPeriod extends AbstractEntity<MonthlyTaxPeriod> {
   @Column('uuid')
-  organizationId: string;
+  'orgId': string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: '"org_id"' })
+  organization: OrganizationEntity;
 
   @Column('int')
   year: number;
@@ -337,12 +316,6 @@ export class MonthlyTaxPeriod {
 
   @Column({ nullable: true })
   filedByUserId: string;
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }
 
 export interface TaxBreakdown {
@@ -376,17 +349,14 @@ export interface TaxBreakdown {
 // Linked to BookkeepingEntry (type=SALARY) for the actual monthly amounts.
 
 @Entity('bookkeeping_employees')
-@Index(['organizationId', 'isActive'])
-export class EmployeeRecord {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
+@Index(['"orgId"', 'isActive'])
+export class EmployeeRecord extends AbstractEntity<EmployeeRecord> {
   @Column('uuid')
-  organizationId: string;
+  'orgId': string;
 
-  @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organizationId' })
-  organization: Organization;
+  @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: '"org_id"' })
+  organization: OrganizationEntity;
 
   @Column()
   fullName: string;
@@ -410,10 +380,4 @@ export class EmployeeRecord {
 
   @Column({ nullable: true })
   bankAccount: string; // IBAN — for salary payment reference
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }

@@ -81,9 +81,9 @@ export class EntryService {
 
   // ─── Tax profile helper ──────────────────────────────────────────────────
 
-  private async getProfile(organizationId: string): Promise<TaxProfile> {
+  private async getProfile(orgId: string): Promise<TaxProfile> {
     const profile = await this.profileRepo.findOne({
-      where: { organizationId },
+      where: { orgId },
     });
     if (!profile) {
       throw new NotFoundException(
@@ -98,16 +98,16 @@ export class EntryService {
   // first entry for a given month.
 
   async ensurePeriod(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
   ): Promise<MonthlyTaxPeriod> {
     let period = await this.periodRepo.findOne({
-      where: { organizationId, year, month },
+      where: { orgId, year, month },
     });
     if (!period) {
       period = this.periodRepo.create({
-        organizationId,
+        orgId,
         year,
         month,
         status: PeriodStatus.OPEN,
@@ -123,21 +123,21 @@ export class EntryService {
   // Ecommerce: manual top-up (orders auto-sync via order hook)
 
   async addIncome(
-    organizationId: string,
+    orgId: string,
     dto: AddIncomeDto,
     createdByUserId?: string,
   ): Promise<BookkeepingEntry> {
-    const profile = await this.getProfile(organizationId);
+    const profile = await this.getProfile(orgId);
     const date = new Date(dto.date);
     const { taxYear, taxMonth } = periodFromDate(date);
 
-    await this.ensurePeriod(organizationId, taxYear, taxMonth);
+    await this.ensurePeriod(orgId, taxYear, taxMonth);
 
     const vatRate = dto.vatRate ?? Number(profile.defaultVatRate);
     const { vatAmount, netAmount } = splitVat(dto.grossAmount, vatRate);
 
     const entry = this.entryRepo.create({
-      organizationId,
+      orgId,
       date,
       taxYear,
       taxMonth,
@@ -158,7 +158,7 @@ export class EntryService {
     });
 
     const saved = await this.entryRepo.save(entry);
-    await this.recalculatePeriod(organizationId, taxYear, taxMonth);
+    await this.recalculatePeriod(orgId, taxYear, taxMonth);
     return saved;
   }
 
@@ -168,21 +168,21 @@ export class EntryService {
   // Ecommerce: packaging, returns shipping
 
   async addExpense(
-    organizationId: string,
+    orgId: string,
     dto: AddExpenseDto,
     createdByUserId?: string,
   ): Promise<BookkeepingEntry> {
-    await this.getProfile(organizationId);
+    await this.getProfile(orgId);
     const date = new Date(dto.date);
     const { taxYear, taxMonth } = periodFromDate(date);
 
-    await this.ensurePeriod(organizationId, taxYear, taxMonth);
+    await this.ensurePeriod(orgId, taxYear, taxMonth);
 
     const vatRate = dto.vatRate ?? 0; // Assume no deductible VAT unless specified
     const { vatAmount, netAmount } = splitVat(dto.grossAmount, vatRate);
 
     const entry = this.entryRepo.create({
-      organizationId,
+      orgId,
       date,
       taxYear,
       taxMonth,
@@ -207,7 +207,7 @@ export class EntryService {
     });
 
     const saved = await this.entryRepo.save(entry);
-    await this.recalculatePeriod(organizationId, taxYear, taxMonth);
+    await this.recalculatePeriod(orgId, taxYear, taxMonth);
     return saved;
   }
 
@@ -216,14 +216,14 @@ export class EntryService {
   // All tax deductions computed here — owner never enters tax amounts manually.
 
   async addSalary(
-    organizationId: string,
+    orgId: string,
     dto: AddSalaryDto,
     createdByUserId?: string,
   ): Promise<BookkeepingEntry> {
-    await this.getProfile(organizationId);
+    await this.getProfile(orgId);
 
     const employee = await this.employeeRepo.findOne({
-      where: { id: dto.employeeId, organizationId },
+      where: { id: dto.employeeId, orgId },
     });
     if (!employee) {
       throw new NotFoundException(`Employee ${dto.employeeId} not found`);
@@ -231,7 +231,7 @@ export class EntryService {
 
     const date = new Date(dto.date);
     const { taxYear, taxMonth } = periodFromDate(date);
-    await this.ensurePeriod(organizationId, taxYear, taxMonth);
+    await this.ensurePeriod(orgId, taxYear, taxMonth);
 
     const gross = dto.grossAmount;
     const exemption = dto.basicExemption ?? calcBasicExemption(gross);
@@ -244,7 +244,7 @@ export class EntryService {
     const netSalary = +(gross - incomeTax - unempEmp - pensionII).toFixed(2);
 
     const entry = this.entryRepo.create({
-      organizationId,
+      orgId,
       date,
       taxYear,
       taxMonth,
@@ -289,7 +289,7 @@ export class EntryService {
     });
 
     const saved = await this.entryRepo.save(entry);
-    await this.recalculatePeriod(organizationId, taxYear, taxMonth);
+    await this.recalculatePeriod(orgId, taxYear, taxMonth);
     return saved;
   }
 
@@ -298,11 +298,11 @@ export class EntryService {
   // This is the primary input method for restaurant owners.
 
   async addDailySales(
-    organizationId: string,
+    orgId: string,
     dto: AddDailySalesDto,
     createdByUserId?: string,
   ): Promise<BookkeepingEntry[]> {
-    const profile = await this.getProfile(organizationId);
+    const profile = await this.getProfile(orgId);
     const vatRate = dto.vatRate ?? Number(profile.defaultVatRate);
     const results: BookkeepingEntry[] = [];
 
@@ -331,7 +331,7 @@ export class EntryService {
     for (const ch of channels) {
       if (!ch.amount || ch.amount <= 0) continue;
       const result = await this.addIncome(
-        organizationId,
+        orgId,
         {
           date: dto.date,
           grossAmount: ch.amount,
@@ -359,7 +359,7 @@ export class EntryService {
   // Ecommerce owners get their sales in without touching anything.
 
   async syncFromOrder(
-    organizationId: string,
+    orgId: string,
     order: {
       id: string;
       total: number;
@@ -374,7 +374,7 @@ export class EntryService {
     // Avoid double-sync
     const existing = await this.entryRepo.findOne({
       where: {
-        organizationId,
+        orgId,
         sourceType: SourceType.ORDER_SYNC,
         sourceId: order.id,
       },
@@ -384,14 +384,14 @@ export class EntryService {
     const date = order.createdAt;
     const { taxYear, taxMonth } = periodFromDate(date);
 
-    await this.ensurePeriod(organizationId, taxYear, taxMonth);
+    await this.ensurePeriod(orgId, taxYear, taxMonth);
 
-    const profile = await this.getProfile(organizationId);
+    const profile = await this.getProfile(orgId);
     const vatRate = Number(profile.defaultVatRate);
     const { vatAmount, netAmount } = splitVat(order.total, vatRate);
 
     const entry = this.entryRepo.create({
-      organizationId,
+      orgId,
       date,
       taxYear,
       taxMonth,
@@ -408,19 +408,19 @@ export class EntryService {
     });
 
     await this.entryRepo.save(entry);
-    await this.recalculatePeriod(organizationId, taxYear, taxMonth);
+    await this.recalculatePeriod(orgId, taxYear, taxMonth);
 
     this.logger.log(
-      `Synced order ${order.id} → bookkeeping entry for org ${organizationId}`,
+      `Synced order ${order.id} → bookkeeping entry for org ${orgId}`,
     );
   }
 
   // ─── List entries ─────────────────────────────────────────────────────────
 
-  async listEntries(organizationId: string, dto: ListEntriesDto) {
+  async listEntries(orgId: string, dto: ListEntriesDto) {
     const qb = this.entryRepo
       .createQueryBuilder('e')
-      .where('e.organizationId = :organizationId', { organizationId })
+      .where('e.orgId = :orgId', { orgId })
       .andWhere('e.status != :excluded', { excluded: EntryStatus.EXCLUDED })
       .orderBy('e.date', 'DESC')
       .addOrderBy('e.createdAt', 'DESC')
@@ -439,30 +439,30 @@ export class EntryService {
 
   // ─── Delete / exclude entry ───────────────────────────────────────────────
 
-  async excludeEntry(id: string, organizationId: string): Promise<void> {
+  async excludeEntry(id: string, orgId: string): Promise<void> {
     const entry = await this.entryRepo.findOne({
-      where: { id, organizationId },
+      where: { id, orgId },
     });
     if (!entry) throw new NotFoundException('Entry not found');
     entry.status = EntryStatus.EXCLUDED;
     await this.entryRepo.save(entry);
-    await this.recalculatePeriod(organizationId, entry.taxYear, entry.taxMonth);
+    await this.recalculatePeriod(orgId, entry.taxYear, entry.taxMonth);
   }
 
   // ─── Recalculate period totals ────────────────────────────────────────────
   // Called after every write. Keeps the MonthlyTaxPeriod summary current.
 
   async recalculatePeriod(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
   ): Promise<MonthlyTaxPeriod> {
-    const period = await this.ensurePeriod(organizationId, year, month);
+    const period = await this.ensurePeriod(orgId, year, month);
     if (period.status === PeriodStatus.LOCKED) return period;
 
     const entries = await this.entryRepo.find({
       where: {
-        organizationId,
+        orgId,
         taxYear: year,
         taxMonth: month,
         status: EntryStatus.CONFIRMED,

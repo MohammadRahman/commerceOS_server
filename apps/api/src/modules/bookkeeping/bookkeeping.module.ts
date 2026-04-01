@@ -17,18 +17,17 @@ import { TaxProfileService } from './services/tax-profile.service';
 import { BookkeepingController } from './bookkeeping.controller';
 import { ESTONIA_TAX_QUEUE_NAMES } from '../estonia-tax/estonia-tax.constants';
 import { AiModule } from '../ai/ai.module';
-import { Or } from 'typeorm';
-import { Organization } from '../organizations/entities/organization.entity';
+import { OrganizationEntity } from '../tenancy/entities/organization.entity';
 
 @Module({
   imports: [
     AiModule,
     TypeOrmModule.forFeature([
-      Organization,
       BookkeepingEntry,
       MonthlyTaxPeriod,
       TaxProfile,
       EmployeeRecord,
+      OrganizationEntity,
     ]),
     BullModule.registerQueue(
       { name: ESTONIA_TAX_QUEUE_NAMES.VAT_FILING },

@@ -58,7 +58,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_tax_periods" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL,
+        "orgId" uuid NOT NULL,
         "year" integer NOT NULL,
         "month" integer NOT NULL,
 
@@ -95,7 +95,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_vat_transactions" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL,
+        "orgId" uuid NOT NULL,
         "taxYear" integer NOT NULL,
         "taxMonth" integer NOT NULL,
 
@@ -128,7 +128,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_employee_tax_records" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL,
+        "orgId" uuid NOT NULL,
         "taxYear" integer NOT NULL,
         "taxMonth" integer NOT NULL,
 
@@ -160,7 +160,7 @@ export class EstoniaTaxFeature1775076285575 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "estonia_tax_submissions" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL,
+        "orgId" uuid NOT NULL,
 
         "formType" "tax_form_type_enum" NOT NULL,
         "taxYear" integer NOT NULL,

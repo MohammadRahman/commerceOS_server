@@ -129,7 +129,7 @@ export class EstoniaTsdService {
   // ─── Record & persist ─────────────────────────────────────────────────────
 
   async recordEmployeeTax(
-    organizationId: string,
+    orgId: string,
     dto: RecordEmployeeTaxDto,
   ): Promise<EstoniaEmployeeTaxRecord> {
     const breakdown = this.calculatePayroll(
@@ -140,14 +140,14 @@ export class EstoniaTsdService {
     // Upsert — re-running payroll for same period replaces the record
     const existing = await this.empTaxRepo.findOne({
       where: {
-        organizationId,
+        orgId,
         taxYear: dto.taxYear,
         taxMonth: dto.taxMonth,
         employeeIdCode: dto.employeeIdCode,
       },
     });
 
-    const record = existing ?? this.empTaxRepo.create({ organizationId });
+    const record = existing ?? this.empTaxRepo.create({ orgId });
 
     Object.assign(record, {
       taxYear: dto.taxYear,
@@ -169,30 +169,26 @@ export class EstoniaTsdService {
     const saved = await this.empTaxRepo.save(record);
 
     // Recalculate period summary
-    await this.recalculatePeriodTotals(
-      organizationId,
-      dto.taxYear,
-      dto.taxMonth,
-    );
+    await this.recalculatePeriodTotals(orgId, dto.taxYear, dto.taxMonth);
 
     return saved;
   }
 
   async recalculatePeriodTotals(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
   ): Promise<void> {
     const records = await this.empTaxRepo.find({
-      where: { organizationId, taxYear: year, taxMonth: month },
+      where: { orgId, taxYear: year, taxMonth: month },
     });
 
     let period = await this.periodRepo.findOne({
-      where: { organizationId, year, month },
+      where: { orgId, year, month },
     });
     if (!period) {
       period = this.periodRepo.create({
-        organizationId,
+        orgId,
         year,
         month,
         kmdStatus: TaxPeriodStatus.PENDING,
@@ -244,12 +240,12 @@ export class EstoniaTsdService {
   }
 
   async getEmployeeRecords(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
   ): Promise<EstoniaEmployeeTaxRecord[]> {
     return this.empTaxRepo.find({
-      where: { organizationId, taxYear: year, taxMonth: month },
+      where: { orgId, taxYear: year, taxMonth: month },
       order: { employeeName: 'ASC' },
     });
   }

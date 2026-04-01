@@ -83,12 +83,9 @@ export class MonthEndService {
 
     for (const period of openPeriods) {
       try {
-        await this.closePeriod(period.organizationId, priorYear, priorMonth);
+        await this.closePeriod(period.orgId, priorYear, priorMonth);
       } catch (err) {
-        this.logger.error(
-          `[Month-end] Failed for org ${period.organizationId}`,
-          err,
-        );
+        this.logger.error(`[Month-end] Failed for org ${period.orgId}`, err);
       }
     }
   }
@@ -97,13 +94,13 @@ export class MonthEndService {
   // Called by cron OR manually by user from the UI ("Calculate my taxes").
 
   async closePeriod(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
     previewOnly = false,
   ): Promise<MonthlyTaxPeriod> {
     const profile = await this.profileRepo.findOne({
-      where: { organizationId },
+      where: { orgId },
     });
     if (!profile) {
       throw new BadRequestException(
@@ -112,7 +109,7 @@ export class MonthEndService {
     }
 
     let period = await this.periodRepo.findOne({
-      where: { organizationId, year, month },
+      where: { orgId, year, month },
     });
     if (!period) {
       throw new BadRequestException(
@@ -128,7 +125,7 @@ export class MonthEndService {
     // Load all confirmed entries for the period
     const entries = await this.entryRepo.find({
       where: {
-        organizationId,
+        orgId,
         taxYear: year,
         taxMonth: month,
         status: EntryStatus.CONFIRMED,
@@ -152,7 +149,7 @@ export class MonthEndService {
 
       // Auto-file if enabled
       if (profile.autoFileEnabled && profile.emtaApiToken) {
-        await this.queueFilings(organizationId, year, month, profile);
+        await this.queueFilings(orgId, year, month, profile);
       }
     }
 
@@ -315,7 +312,7 @@ export class MonthEndService {
   // ─── Queue EMTA filings ───────────────────────────────────────────────────
 
   private async queueFilings(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
     profile: TaxProfile,
@@ -323,19 +320,19 @@ export class MonthEndService {
     // KMD — only if VAT registered
     if (profile.vatStatus !== VatRegistrationStatus.NOT_REGISTERED) {
       await this.vatQueue.add('file-kmd', {
-        organizationId,
+        orgId,
         taxYear: year,
         taxMonth: month,
       });
       this.logger.log(
-        `[Month-end] Queued KMD filing for org ${organizationId} ${year}/${month}`,
+        `[Month-end] Queued KMD filing for org ${orgId} ${year}/${month}`,
       );
     }
 
     // TSD — if any salary entries exist
     const hasSalaries = await this.entryRepo.count({
       where: {
-        organizationId,
+        orgId,
         taxYear: year,
         taxMonth: month,
         entryType: EntryType.SALARY,
@@ -344,12 +341,12 @@ export class MonthEndService {
     });
     if (hasSalaries > 0) {
       await this.tsdQueue.add('file-tsd', {
-        organizationId,
+        orgId,
         taxYear: year,
         taxMonth: month,
       });
       this.logger.log(
-        `[Month-end] Queued TSD filing for org ${organizationId} ${year}/${month}`,
+        `[Month-end] Queued TSD filing for org ${orgId} ${year}/${month}`,
       );
     }
   }
@@ -357,7 +354,7 @@ export class MonthEndService {
   // ─── Mark period as filed ─────────────────────────────────────────────────
 
   async markFiled(
-    organizationId: string,
+    orgId: string,
     year: number,
     month: number,
     kmdSubmissionId?: string,
@@ -365,7 +362,7 @@ export class MonthEndService {
     filedByUserId?: string,
   ): Promise<MonthlyTaxPeriod> {
     const period = await this.periodRepo.findOneOrFail({
-      where: { organizationId, year, month },
+      where: { orgId, year, month },
     });
     period.status = PeriodStatus.FILED;
     period.kmdSubmissionId = kmdSubmissionId ?? period.kmdSubmissionId;
@@ -377,14 +374,14 @@ export class MonthEndService {
 
   // ─── Get period with full summary ─────────────────────────────────────────
 
-  async getPeriod(organizationId: string, year: number, month: number) {
+  async getPeriod(orgId: string, year: number, month: number) {
     const period = await this.periodRepo.findOne({
-      where: { organizationId, year, month },
+      where: { orgId, year, month },
     });
 
     const entryCount = await this.entryRepo.count({
       where: {
-        organizationId,
+        orgId,
         taxYear: year,
         taxMonth: month,
         status: EntryStatus.CONFIRMED,
@@ -396,9 +393,9 @@ export class MonthEndService {
 
   // ─── List all periods for org ─────────────────────────────────────────────
 
-  async listPeriods(organizationId: string) {
+  async listPeriods(orgId: string) {
     return this.periodRepo.find({
-      where: { organizationId },
+      where: { orgId },
       order: { year: 'DESC', month: 'DESC' },
       take: 24,
     });

@@ -17,7 +17,7 @@ import { EstoniaEmtaGatewayService } from './services/emta-gateway.service';
 import { EstoniaTaxDeadlineService } from './services/tax-deadline.service';
 import { EstoniaTsdService } from './services/tsd.service';
 import { EstoniaXmlBuilderService } from './services/xml-builder.service';
-import { Organization } from '../organizations/entities/organization.entity';
+import { OrganizationEntity } from '../tenancy/entities/organization.entity';
 
 @Module({
   imports: [
@@ -26,7 +26,7 @@ import { Organization } from '../organizations/entities/organization.entity';
       EstoniaVatTransaction,
       EstoniaEmployeeTaxRecord,
       EstoniaTaxSubmission,
-      Organization,
+      OrganizationEntity,
     ]),
     BullModule.registerQueue(
       { name: ESTONIA_TAX_QUEUE_NAMES.VAT_FILING },

@@ -41,12 +41,12 @@ export class TaxProfileService {
   ) {}
 
   async upsertProfile(
-    organizationId: string,
+    orgId: string,
     dto: SetupTaxProfileDto,
   ): Promise<TaxProfile> {
-    let profile = await this.profileRepo.findOne({ where: { organizationId } });
+    let profile = await this.profileRepo.findOne({ where: { orgId } });
     if (!profile) {
-      profile = this.profileRepo.create({ organizationId });
+      profile = this.profileRepo.create({ orgId });
     }
     Object.assign(profile, {
       persona: dto.persona,
@@ -61,18 +61,18 @@ export class TaxProfileService {
     return this.profileRepo.save(profile);
   }
 
-  async getProfile(organizationId: string): Promise<TaxProfile | null> {
-    return this.profileRepo.findOne({ where: { organizationId } });
+  async getProfile(orgId: string): Promise<TaxProfile | null> {
+    return this.profileRepo.findOne({ where: { orgId } });
   }
 
   // ─── Employee management ─────────────────────────────────────────────────
 
   async createEmployee(
-    organizationId: string,
+    orgId: string,
     dto: CreateEmployeeDto,
   ): Promise<EmployeeRecord> {
     const employee = this.employeeRepo.create({
-      organizationId,
+      orgId,
       fullName: dto.fullName,
       personalIdCode: dto.personalIdCode,
       paymentTypeCode: dto.paymentTypeCode ?? '10',
@@ -84,16 +84,16 @@ export class TaxProfileService {
     return this.employeeRepo.save(employee);
   }
 
-  async listEmployees(organizationId: string): Promise<EmployeeRecord[]> {
+  async listEmployees(orgId: string): Promise<EmployeeRecord[]> {
     return this.employeeRepo.find({
-      where: { organizationId, isActive: true },
+      where: { orgId, isActive: true },
       order: { fullName: 'ASC' },
     });
   }
 
-  async deactivateEmployee(id: string, organizationId: string): Promise<void> {
+  async deactivateEmployee(id: string, orgId: string): Promise<void> {
     const employee = await this.employeeRepo.findOne({
-      where: { id, organizationId },
+      where: { id, orgId },
     });
     if (!employee) throw new NotFoundException('Employee not found');
     employee.isActive = false;

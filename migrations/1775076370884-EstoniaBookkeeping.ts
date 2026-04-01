@@ -84,7 +84,7 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "bookkeeping_tax_profiles" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL UNIQUE,
+        "orgId" uuid NOT NULL UNIQUE,
         "persona" "business_persona_enum" NOT NULL,
         "vatStatus" "vat_registration_status_enum" NOT NULL DEFAULT 'NOT_REGISTERED',
         "vatNumber" varchar,
@@ -105,7 +105,7 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "bookkeeping_employees" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL,
+        "orgId" uuid NOT NULL,
         "fullName" varchar NOT NULL,
         "personalIdCode" varchar,
         "paymentTypeCode" varchar NOT NULL DEFAULT '10',
@@ -121,7 +121,7 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_employees_org_active"
-      ON "bookkeeping_employees" (""org_id"", "isActive")
+      ON "bookkeeping_employees" ("orgId", "isActive")
     `);
 
     // ── bookkeeping_entries ──────────────────────────────
@@ -129,7 +129,7 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "bookkeeping_entries" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL,
+        "orgId" uuid NOT NULL,
         "date" date NOT NULL,
         "taxYear" integer NOT NULL,
         "taxMonth" integer NOT NULL,
@@ -165,7 +165,7 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_entries_org_period"
-      ON "bookkeeping_entries" (""org_id"", "taxYear", "taxMonth")
+      ON "bookkeeping_entries" ("orgId", "taxYear", "taxMonth")
     `);
 
     // ── bookkeeping_monthly_periods ──────────────────────
@@ -173,7 +173,7 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "bookkeeping_monthly_periods" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        ""org_id"" uuid NOT NULL,
+        "orgId" uuid NOT NULL,
         "year" integer NOT NULL,
         "month" integer NOT NULL,
 
@@ -205,7 +205,7 @@ export class EstoniaBookkeeping1775076370884 implements MigrationInterface {
 
         CONSTRAINT "PK_bookkeeping_monthly_periods" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_period_org_year_month"
-          UNIQUE (""org_id"", "year", "month")
+          UNIQUE ("orgId", "year", "month")
       )
     `);
   }
