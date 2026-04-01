@@ -581,6 +581,56 @@ Respond with JSON only, no markdown: {"intent":"<category>","confidence":<0.0-1.
       return { intent: 'other', confidence: 0 };
     }
   }
+
+  async scanReceiptImage(
+    imageBase64: string,
+    imageMime: string,
+    prompt: string,
+  ): Promise<string> {
+    return this.callClaude(
+      prompt,
+      undefined, // no imageUrl
+      imageBase64,
+      imageMime,
+      this.MODEL, // use Sonnet for best OCR accuracy
+      1024,
+    );
+  }
+
+  parseReceiptJSON(
+    raw: string,
+  ): import('../bookkeeping/entities/bookkeeping.entities').ReceiptParsedData {
+    const parsed = this.parseJSON<{
+      merchantName?: string;
+      merchantVatNumber?: string;
+      receiptDate?: string;
+      totalAmount?: number;
+      vatAmount?: number;
+      vatRate?: number;
+      currency?: string;
+      lineItems?: Array<{
+        description: string;
+        quantity?: number;
+        unitPrice?: number;
+        total: number;
+      }>;
+      confidence: number;
+      rawText?: string;
+    }>(raw, { confidence: 0 });
+
+    return {
+      merchantName: parsed.merchantName,
+      merchantVatNumber: parsed.merchantVatNumber,
+      receiptDate: parsed.receiptDate,
+      totalAmount: parsed.totalAmount ? Number(parsed.totalAmount) : undefined,
+      vatAmount: parsed.vatAmount ? Number(parsed.vatAmount) : undefined,
+      vatRate: parsed.vatRate ? Number(parsed.vatRate) : undefined,
+      currency: parsed.currency ?? 'EUR',
+      lineItems: parsed.lineItems ?? [],
+      confidence: Number(parsed.confidence) || 0,
+      rawText: parsed.rawText,
+    };
+  }
 }
 /* eslint-disable no-constant-binary-expression */
 // /* eslint-disable @typescript-eslint/no-unsafe-return */

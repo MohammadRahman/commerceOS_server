@@ -27,6 +27,8 @@ import { LiveSaleModule } from './modules/live-sale/live-sale.module';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
 import { SubscriptionModule } from './modules/subscriptions/subscriptions.module';
 import { BullBoardModule } from './bull-board.module';
+import { EstoniaTaxModule } from './modules/estonia-tax/estonia-tax.module';
+import { BookkeepingModule } from './modules/bookkeeping/bookkeeping.module';
 
 @Module({
   imports: [
@@ -62,6 +64,8 @@ import { BullBoardModule } from './bull-board.module';
     PlatformAdminModule,
     SubscriptionModule,
     BullBoardModule,
+    EstoniaTaxModule,
+    BookkeepingModule,
   ],
 })
 export class AppModule {}
