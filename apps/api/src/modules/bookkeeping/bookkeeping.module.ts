@@ -18,12 +18,12 @@ import { BookkeepingController } from './bookkeeping.controller';
 import { ESTONIA_TAX_QUEUE_NAMES } from '../estonia-tax/estonia-tax.constants';
 import { AiModule } from '../ai/ai.module';
 import { OrganizationEntity } from '../tenancy/entities/organization.entity';
-import { PaymentsModule } from '../payments/payments.module';
+import { UploadModule } from '@app/common/upload';
 
 @Module({
   imports: [
     AiModule,
-    PaymentsModule,
+    UploadModule,
     TypeOrmModule.forFeature([
       BookkeepingEntry,
       MonthlyTaxPeriod,
