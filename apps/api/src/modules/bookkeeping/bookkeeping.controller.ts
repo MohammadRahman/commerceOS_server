@@ -57,13 +57,13 @@ export class BookkeepingController {
   @Post('setup')
   @RequirePerm('bookkeeping:write')
   async setup(@Ctx() ctx: any, @Body() dto: SetupTaxProfileDto) {
-    return this.taxProfileService.upsertProfile(ctx.user.orgId, dto);
+    return this.taxProfileService.upsertProfile(ctx.orgId, dto);
   }
 
   @Get('setup')
   @RequirePerm('bookkeeping:read')
   async getProfile(@Ctx() ctx: any) {
-    return this.taxProfileService.getProfile(ctx.user.orgId);
+    return this.taxProfileService.getProfile(ctx.orgId);
   }
 
   // Reference data — no auth needed for rate lookups
@@ -140,7 +140,7 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.CREATED)
   addIncome(@Ctx() ctx: any, @Body() dto: AddIncomeDto) {
-    return this.entryService.addIncome(ctx.user.orgId, dto, ctx.userId);
+    return this.entryService.addIncome(ctx.orgId, dto, ctx.userId);
   }
 
   // Restaurant-specific: one-shot end-of-day entry
@@ -148,7 +148,7 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.CREATED)
   addDailySales(@Ctx() ctx: any, @Body() dto: AddDailySalesDto) {
-    return this.entryService.addDailySales(ctx.user.orgId, dto, ctx.userId);
+    return this.entryService.addDailySales(ctx.orgId, dto, ctx.userId);
   }
 
   // ─── Expenses ─────────────────────────────────────────────────────────────
@@ -157,7 +157,7 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.CREATED)
   addExpense(@Ctx() ctx: any, @Body() dto: AddExpenseDto) {
-    return this.entryService.addExpense(ctx.user.orgId, dto, ctx.userId);
+    return this.entryService.addExpense(ctx.orgId, dto, ctx.userId);
   }
 
   // ─── Receipt scanning ─────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.OK)
   scanReceipt(@Ctx() ctx: any, @Body() dto: ScanReceiptDto) {
-    return this.scannerService.scanReceipt(ctx.user.orgId, dto, ctx.userId);
+    return this.scannerService.scanReceipt(ctx.orgId, dto, ctx.userId);
   }
 
   // Confirm a scanned receipt (after user reviews OCR output)
@@ -174,7 +174,7 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.CREATED)
   confirmScannedReceipt(@Ctx() ctx: any, @Body() dto: AddExpenseDto) {
-    return this.entryService.addExpense(ctx.user.orgId, dto, ctx.userId);
+    return this.entryService.addExpense(ctx.orgId, dto, ctx.userId);
   }
 
   // ─── Salaries ─────────────────────────────────────────────────────────────
@@ -183,7 +183,7 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.CREATED)
   addSalary(@Ctx() ctx: any, @Body() dto: AddSalaryDto) {
-    return this.entryService.addSalary(ctx.user.orgId, dto, ctx.userId);
+    return this.entryService.addSalary(ctx.orgId, dto, ctx.userId);
   }
 
   // Preview salary breakdown before paying (no DB write)
@@ -203,20 +203,20 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.CREATED)
   createEmployee(@Ctx() ctx: any, @Body() dto: CreateEmployeeDto) {
-    return this.taxProfileService.createEmployee(ctx.user.orgId, dto);
+    return this.taxProfileService.createEmployee(ctx.orgId, dto);
   }
 
   @Get('employees')
   @RequirePerm('bookkeeping:read')
   listEmployees(@Ctx() ctx: any) {
-    return this.taxProfileService.listEmployees(ctx.user.orgId);
+    return this.taxProfileService.listEmployees(ctx.orgId);
   }
 
   @Delete('employees/:id')
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   deactivateEmployee(@Ctx() ctx: any, @Param('id', ParseUUIDPipe) id: string) {
-    return this.taxProfileService.deactivateEmployee(id, ctx.user.orgId);
+    return this.taxProfileService.deactivateEmployee(id, ctx.orgId);
   }
 
   // ─── Entries (ledger view) ─────────────────────────────────────────────────
@@ -224,14 +224,14 @@ export class BookkeepingController {
   @Get('entries')
   @RequirePerm('bookkeeping:read')
   listEntries(@Ctx() ctx: any, @Query() query: ListEntriesDto) {
-    return this.entryService.listEntries(ctx.user.orgId, query);
+    return this.entryService.listEntries(ctx.orgId, query);
   }
 
   @Delete('entries/:id')
   @RequirePerm('bookkeeping:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   excludeEntry(@Ctx() ctx: any, @Param('id', ParseUUIDPipe) id: string) {
-    return this.entryService.excludeEntry(id, ctx.user.orgId);
+    return this.entryService.excludeEntry(id, ctx.orgId);
   }
 
   // ─── Monthly periods ───────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ export class BookkeepingController {
   @Get('periods')
   @RequirePerm('bookkeeping:read')
   listPeriods(@Ctx() ctx: any) {
-    return this.monthEndService.listPeriods(ctx.user.orgId);
+    return this.monthEndService.listPeriods(ctx.orgId);
   }
 
   @Get('periods/:year/:month')
@@ -250,7 +250,7 @@ export class BookkeepingController {
     @Param('month') month: string,
   ) {
     return this.monthEndService.getPeriod(
-      ctx.user.orgId,
+      ctx.orgId,
       parseInt(year),
       parseInt(month),
     );
@@ -263,7 +263,7 @@ export class BookkeepingController {
   @RequirePerm('bookkeeping:read')
   calculateTaxes(@Ctx() ctx: any, @Body() dto: CloseMonthDto) {
     return this.monthEndService.closePeriod(
-      ctx.user.orgId,
+      ctx.orgId,
       dto.year,
       dto.month,
       true,
@@ -276,7 +276,7 @@ export class BookkeepingController {
   @HttpCode(HttpStatus.ACCEPTED)
   fileTaxes(@Ctx() ctx: any, @Body() dto: CloseMonthDto) {
     return this.monthEndService.closePeriod(
-      ctx.user.orgId,
+      ctx.orgId,
       dto.year,
       dto.month,
       false,
