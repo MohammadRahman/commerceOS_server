@@ -57,3 +57,5 @@ railway run npm run migration:run:prod
 3. 1773699871306-001-seed-provider-catalogs → provider catalog data
 4. 1773700000000-AddUserOtpFields → OTP columns
 5. 1773960000000-AddChannelName → channel name column (NEW)
+
+<!-- follow this file -->
