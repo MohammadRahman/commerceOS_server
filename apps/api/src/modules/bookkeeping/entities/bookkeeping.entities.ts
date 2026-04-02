@@ -240,7 +240,7 @@ export class MonthlyTaxPeriod extends AbstractEntity<MonthlyTaxPeriod> {
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: '"org_id"' })
+  @JoinColumn({ name: 'org_id' })
   organization: OrganizationEntity;
 
   @Column('int')

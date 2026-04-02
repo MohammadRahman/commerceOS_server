@@ -3,11 +3,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  TaxProfile,
-  EmployeeRecord,
-  VatRegistrationStatus,
-} from '../entities/bookkeeping.entities';
+import { TaxProfile, EmployeeRecord } from '../entities/bookkeeping.entities';
 import { CreateEmployeeDto, SetupTaxProfileDto } from '../dto/bookkeeping.dto';
 
 // 2025 payroll constants
