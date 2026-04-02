@@ -4,16 +4,7 @@
 // lands here, regardless of persona (restaurant, ecommerce, freelancer).
 // The tax engine at month-end reads exclusively from these tables.
 
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
-  Index,
-} from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { OrganizationEntity } from '../../tenancy/entities/organization.entity';
 import { AbstractEntity } from '@app/common';
 
@@ -36,7 +27,7 @@ export enum VatRegistrationStatus {
 
 @Entity('bookkeeping_tax_profiles')
 export class TaxProfile extends AbstractEntity<TaxProfile> {
-  @Column('uuid', { unique: true })
+  @Column({ type: 'uuid', name: 'org_id', unique: true })
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
@@ -137,7 +128,7 @@ export enum SourceType {
 @Index('IDX_entries_org_period', ['orgId', 'taxYear', 'taxMonth'])
 @Index('IDX_entries_org_type_date', ['orgId', 'entryType', 'date'])
 export class BookkeepingEntry extends AbstractEntity<BookkeepingEntry> {
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'org_id' })
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
@@ -245,7 +236,7 @@ export enum PeriodStatus {
 @Entity('bookkeeping_monthly_periods')
 @Index(['orgId', 'year', 'month'], { unique: true })
 export class MonthlyTaxPeriod extends AbstractEntity<MonthlyTaxPeriod> {
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'org_id' })
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
@@ -351,7 +342,7 @@ export interface TaxBreakdown {
 @Entity('bookkeeping_employees')
 @Index(['orgId', 'isActive'])
 export class EmployeeRecord extends AbstractEntity<EmployeeRecord> {
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'org_id' })
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })

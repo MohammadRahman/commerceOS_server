@@ -1,16 +1,7 @@
 // apps/api/src/modules/estonia-tax/entities/estonia-tax.entities.ts
 // Four core entities covering VAT, payroll, submissions, and audit trail.
 
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
-  Index,
-} from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { OrganizationEntity } from '../../tenancy/entities/organization.entity';
 import { AbstractEntity } from '@app/common';
 
@@ -33,11 +24,8 @@ export enum TaxFormType {
 
 @Entity('estonia_tax_periods')
 @Index(['orgId', 'year', 'month'], { unique: true })
-export class EstoniaTaxPeriod {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column('uuid')
+export class EstoniaTaxPeriod extends AbstractEntity<EstoniaTaxPeriod> {
+  @Column({ type: 'uuid', name: 'org_id' })
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
@@ -95,12 +83,6 @@ export class EstoniaTaxPeriod {
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   tsdFundedPensionII: number;
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }
 
 // ─── VatTransaction ───────────────────────────────────────────────────────────
@@ -119,11 +101,8 @@ export enum VatTransactionType {
 
 @Entity('estonia_vat_transactions')
 @Index(['orgId', 'taxYear', 'taxMonth'])
-export class EstoniaVatTransaction {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column('uuid')
+export class EstoniaVatTransaction extends AbstractEntity<EstoniaVatTransaction> {
+  @Column({ type: 'uuid', name: 'org_id' })
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
@@ -169,9 +148,6 @@ export class EstoniaVatTransaction {
 
   @Column({ type: 'date' })
   transactionDate: Date;
-
-  @CreateDateColumn()
-  createdAt: Date;
 }
 
 // ─── EmployeeTaxRecord ────────────────────────────────────────────────────────
@@ -181,11 +157,8 @@ export class EstoniaVatTransaction {
 @Index(['orgId', 'taxYear', 'taxMonth', 'employeeIdCode'], {
   unique: true,
 })
-export class EstoniaEmployeeTaxRecord {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column('uuid')
+export class EstoniaEmployeeTaxRecord extends AbstractEntity<EstoniaEmployeeTaxRecord> {
+  @Column({ type: 'uuid', name: 'org_id' })
   orgId: string;
 
   @ManyToOne(() => OrganizationEntity, { onDelete: 'CASCADE' })
@@ -236,12 +209,6 @@ export class EstoniaEmployeeTaxRecord {
 
   @Column({ type: 'boolean', default: false })
   isBoardMember: boolean;
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }
 
 // ─── TaxSubmission ────────────────────────────────────────────────────────────
