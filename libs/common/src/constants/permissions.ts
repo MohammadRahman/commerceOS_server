@@ -58,6 +58,8 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'inbox:read',
     'inbox:write',
     'analytics:read',
+    'bookkeeping:write',
+    'bookkeeping:read',
     // NOT allowed: org:write, channels:write, payments:write, couriers:write,
     //              team:manage, billing, security, access
   ],
@@ -74,38 +76,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'inbox:read',
     'inbox:write',
     'analytics:read',
+    'bookkeeping:read',
     // NOT allowed: any write on settings, billing, security, access, team:write
   ],
 };
-// export type Permission =
-//   | 'inbox:read'
-//   | 'inbox:write'
-//   | 'orders:read'
-//   | 'orders:write'
-//   | 'payments:write'
-//   | 'shipments:write'
-//   | 'reports:read'
-//   | 'admin:manage';
-
-// export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
-//   OWNER: [
-//     'admin:manage',
-//     'inbox:read',
-//     'inbox:write',
-//     'orders:read',
-//     'orders:write',
-//     'payments:write',
-//     'shipments:write',
-//     'reports:read',
-//   ],
-//   ADMIN: [
-//     'inbox:read',
-//     'inbox:write',
-//     'orders:read',
-//     'orders:write',
-//     'payments:write',
-//     'shipments:write',
-//     'reports:read',
-//   ],
-//   AGENT: ['inbox:read', 'inbox:write', 'orders:read', 'orders:write'],
-// };

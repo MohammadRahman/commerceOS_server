@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // apps/api/src/modules/bookkeeping/bookkeeping.controller.ts
 //
@@ -17,6 +19,9 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  BadRequestException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EntryService } from './services/entry.service';
@@ -27,6 +32,8 @@ import { TaxProfileService } from './services/tax-profile.service';
 import {
   EntryCategory,
   BusinessPersona,
+  PLATFORM_COMMISSION_RATES,
+  ThirdPartyPlatform,
 } from './entities/bookkeeping.entities';
 import { Ctx, RbacGuard, RequirePerm } from '@app/common';
 import {
@@ -39,7 +46,10 @@ import {
   CreateEmployeeDto,
   ListEntriesDto,
   CloseMonthDto,
+  AddThirdPartyPayoutDto,
 } from './dto/bookkeeping.dto';
+import { UploadService } from '@app/common/upload/upload.service';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('bookkeeping')
 @UseGuards(JwtAuthGuard, RbacGuard)
@@ -49,6 +59,7 @@ export class BookkeepingController {
     private readonly scannerService: ReceiptScannerService,
     private readonly monthEndService: MonthEndService,
     private readonly taxProfileService: TaxProfileService,
+    private readonly uploadService: UploadService,
   ) {}
 
   // ─── Onboarding ──────────────────────────────────────────────────────────
@@ -116,21 +127,59 @@ export class BookkeepingController {
     ];
   }
 
+  @Get('platforms')
+  getPlatforms() {
+    return [
+      {
+        id: ThirdPartyPlatform.WOLT,
+        label: 'Wolt',
+        defaultRate: PLATFORM_COMMISSION_RATES[ThirdPartyPlatform.WOLT],
+        icon: 'wolt',
+      },
+      {
+        id: ThirdPartyPlatform.BOLT_FOOD,
+        label: 'Bolt Food',
+        defaultRate: PLATFORM_COMMISSION_RATES[ThirdPartyPlatform.BOLT_FOOD],
+        icon: 'bolt_food',
+      },
+      {
+        id: ThirdPartyPlatform.GLOVO,
+        label: 'Glovo',
+        defaultRate: PLATFORM_COMMISSION_RATES[ThirdPartyPlatform.GLOVO],
+        icon: 'glovo',
+      },
+      {
+        id: ThirdPartyPlatform.UBER_EATS,
+        label: 'Uber Eats',
+        defaultRate: PLATFORM_COMMISSION_RATES[ThirdPartyPlatform.UBER_EATS],
+        icon: 'uber_eats',
+      },
+      {
+        id: ThirdPartyPlatform.CUSTOM,
+        label: 'Other',
+        defaultRate: PLATFORM_COMMISSION_RATES[ThirdPartyPlatform.CUSTOM],
+        icon: 'custom',
+      },
+    ];
+  }
+
   @Get('categories')
   getCategories() {
     return Object.values(EntryCategory).map((cat) => ({
       id: cat,
       label: CATEGORY_LABELS[cat] ?? cat,
-      type:
-        cat.includes('SALES') ||
-        cat.includes('INVOICE') ||
-        cat.includes('INCOME')
-          ? 'income'
-          : cat.includes('SALARY') ||
-              cat.includes('FEE') ||
-              cat.includes('BOARD')
-            ? 'salary'
-            : 'expense',
+      type: [
+        'SALES_CASH',
+        'SALES_CARD',
+        'SALES_ONLINE',
+        'SALES_THIRD_PARTY',
+        'INVOICE_PAYMENT',
+        'OTHER_INCOME',
+      ].includes(cat)
+        ? 'income'
+        : ['STAFF_SALARY', 'OWNER_SALARY', 'BOARD_FEE'].includes(cat)
+          ? 'salary'
+          : 'expense',
     }));
   }
 
@@ -151,6 +200,12 @@ export class BookkeepingController {
     return this.entryService.addDailySales(ctx.orgId, dto, ctx.userId);
   }
 
+  @Post('income/third-party-payout')
+  @RequirePerm('bookkeeping:write')
+  @HttpCode(HttpStatus.CREATED)
+  addThirdPartyPayout(@Ctx() ctx: any, @Body() dto: AddThirdPartyPayoutDto) {
+    return this.entryService.addThirdPartyPayout(ctx.orgId, dto, ctx.userId);
+  }
   // ─── Expenses ─────────────────────────────────────────────────────────────
 
   @Post('expenses')
@@ -158,6 +213,50 @@ export class BookkeepingController {
   @HttpCode(HttpStatus.CREATED)
   addExpense(@Ctx() ctx: any, @Body() dto: AddExpenseDto) {
     return this.entryService.addExpense(ctx.orgId, dto, ctx.userId);
+  }
+
+  @Post('expenses/upload-proof')
+  @RequirePerm('bookkeeping:write')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_, file, cb) => {
+        cb(
+          null,
+          ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(
+            file.mimetype,
+          ),
+        );
+      },
+    }),
+  )
+  @HttpCode(HttpStatus.OK)
+  async uploadExpenseProof(
+    @Ctx() ctx: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('entryId') entryId: string,
+  ) {
+    if (!file)
+      throw new BadRequestException('No file uploaded or unsupported format');
+    if (!entryId) throw new BadRequestException('entryId is required');
+
+    const result = await this.uploadService.uploadPaymentScreenshot(
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+      ctx.orgId,
+      entryId,
+    );
+    const entry = await this.entryService.attachProof(
+      ctx.orgId,
+      entryId,
+      result.url,
+    );
+    return {
+      entryId: entry.id,
+      receiptImageUrl: result.url,
+      publicId: result.publicId,
+    };
   }
 
   // ─── Receipt scanning ─────────────────────────────────────────────────────
@@ -211,6 +310,36 @@ export class BookkeepingController {
   listEmployees(@Ctx() ctx: any) {
     return this.taxProfileService.listEmployees(ctx.orgId);
   }
+
+  // TODO: add update endpoint for employee details (e.g. salary changes, tax class changes)
+  // @Patch('employees/:id')
+  // @RequirePerm('bookkeeping:write')
+  // updateEmployee(
+  //   @Ctx() ctx: any,
+  //   @Param('id', ParseUUIDPipe) id: string,
+  //   @Body() dto: UpdateEmployeeDto,
+  // ) {
+  //   return this.taxProfileService.updateEmployee(id, ctx.organizationId, dto);
+  // }
+
+  // TODO: add preview endpoint for employee payroll (similar to the one above but with employee-specific data)
+  // @Get('employees/:id/preview')
+  // @RequirePerm('bookkeeping:read')
+  // previewForEmployee(
+  //   @RequestContext() ctx: any,
+  //   @Param('id', ParseUUIDPipe) id: string,
+  //   @Query('hoursWorked') hoursWorked?: string,
+  //   @Query('hourlyRate') hourlyRate?: string,
+  //   @Query('basicExemption') basicExemption?: string,
+  // ) {
+  //   return this.taxProfileService.previewForEmployee(
+  //     ctx.organizationId,
+  //     id,
+  //     hoursWorked ? Number(hoursWorked) : undefined,
+  //     hourlyRate ? Number(hourlyRate) : undefined,
+  //     basicExemption ? Number(basicExemption) : undefined,
+  //   );
+  // }
 
   @Delete('employees/:id')
   @RequirePerm('bookkeeping:write')

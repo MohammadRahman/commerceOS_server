@@ -89,6 +89,7 @@ export enum EntryCategory {
   SALES_ONLINE = 'SALES_ONLINE',
   INVOICE_PAYMENT = 'INVOICE_PAYMENT',
   OTHER_INCOME = 'OTHER_INCOME',
+  SALES_THIRD_PARTY = 'SALES_THIRD_PARTY',
 
   // Expense categories
   SUPPLIER_FOOD = 'SUPPLIER_FOOD', // Restaurant: meat, veg, groceries
@@ -100,6 +101,7 @@ export enum EntryCategory {
   SOFTWARE = 'SOFTWARE',
   TRANSPORT = 'TRANSPORT',
   OTHER_EXPENSE = 'OTHER_EXPENSE',
+  PLATFORM_COMMISSION = 'PLATFORM_COMMISSION',
 
   // Salary categories
   STAFF_SALARY = 'STAFF_SALARY',
@@ -109,6 +111,21 @@ export enum EntryCategory {
   // Transfer
   BANK_TRANSFER = 'BANK_TRANSFER',
 }
+
+export enum ThirdPartyPlatform {
+  WOLT = 'WOLT', // ~25-30%
+  BOLT_FOOD = 'BOLT_FOOD', // ~20-25%
+  GLOVO = 'GLOVO', // ~25-30%
+  UBER_EATS = 'UBER_EATS', // ~25-30%
+  CUSTOM = 'CUSTOM', // Any other aggregator
+}
+export const PLATFORM_COMMISSION_RATES: Record<ThirdPartyPlatform, number> = {
+  [ThirdPartyPlatform.WOLT]: 0.28, // 28% midpoint estimate
+  [ThirdPartyPlatform.BOLT_FOOD]: 0.23, // 23% midpoint estimate
+  [ThirdPartyPlatform.GLOVO]: 0.28,
+  [ThirdPartyPlatform.UBER_EATS]: 0.28,
+  [ThirdPartyPlatform.CUSTOM]: 0.25, // fallback
+};
 
 export enum EntryStatus {
   DRAFT = 'DRAFT', // Entered but not confirmed
@@ -199,6 +216,29 @@ export class BookkeepingEntry extends AbstractEntity<BookkeepingEntry> {
 
   @Column({ nullable: true })
   createdByUserId: string;
+
+  // ── NEW: VAT exclusion flag ───────────────────────────────────────────────
+  // When true: entry is included in income totals but NOT in KMD VAT output.
+  // Use case: cash sales by unregistered businesses, or sales explicitly
+  // flagged as outside VAT scope. Does NOT affect income tax calculation.
+  @Column({ default: false })
+  excludeFromVat: boolean;
+
+  // ── NEW: Third party platform metadata ───────────────────────────────────
+  // Only populated for SALES_THIRD_PARTY and PLATFORM_COMMISSION entries.
+  @Column({ type: 'enum', enum: ThirdPartyPlatform, nullable: true })
+  thirdPartyPlatform: ThirdPartyPlatform | null;
+
+  @Column({ type: 'decimal', precision: 5, scale: 4, nullable: true })
+  platformCommissionRate: number | null;
+
+  // The gross commission amount deducted by the platform
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  platformCommissionAmount: number | null;
+
+  // The net payout received from the platform (grossAmount - commission)
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  platformPayoutAmount: number | null;
 }
 
 // Shape of OCR-extracted receipt data
@@ -233,6 +273,10 @@ export enum PeriodStatus {
   LOCKED = 'LOCKED', // Accepted by EMTA, no more changes
 }
 
+export enum SalaryType {
+  FIXED = 'FIXED',
+  HOURLY = 'HOURLY',
+}
 @Entity('bookkeeping_monthly_periods')
 @Index(['orgId', 'year', 'month'], { unique: true })
 export class MonthlyTaxPeriod extends AbstractEntity<MonthlyTaxPeriod> {
@@ -292,6 +336,16 @@ export class MonthlyTaxPeriod extends AbstractEntity<MonthlyTaxPeriod> {
   // ── Tax obligations ───────────────────────────────────────────────────────
   // Populated by month-end calculator, shown to user for review
 
+  // NEW: Platform summary for quick reporting
+  @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
+  totalThirdPartyGross: number; // Sum of full order values from platforms
+
+  @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
+  totalPlatformCommission: number; // Sum of commissions paid to platforms
+
+  @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
+  totalThirdPartyPayout: number; // What actually hit the bank
+
   @Column({ type: 'jsonb', nullable: true })
   taxBreakdown: TaxBreakdown | null;
 
@@ -333,6 +387,18 @@ export interface TaxBreakdown {
     outputVat: number;
     deductibleInput: number;
   }>;
+  // NEW: included in breakdown for transparency
+  thirdPartySummary?: {
+    totalGross: number;
+    totalCommission: number;
+    totalPayout: number;
+    byPlatform: Array<{
+      platform: string;
+      gross: number;
+      commission: number;
+      payout: number;
+    }>;
+  };
 }
 
 // ─── EmployeeRecord ───────────────────────────────────────────────────────────
@@ -368,6 +434,14 @@ export class EmployeeRecord extends AbstractEntity<EmployeeRecord> {
 
   @Column({ nullable: true })
   email: string;
+
+  @Column({ type: 'enum', enum: SalaryType, default: SalaryType.FIXED })
+  salaryType: SalaryType;
+
+  // Default hourly rate (€) — only used when salaryType = HOURLY.
+  // Null for FIXED employees; set once and reused each month.
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  hourlyRate: number | null;
 
   @Column({ nullable: true })
   bankAccount: string; // IBAN — for salary payment reference
