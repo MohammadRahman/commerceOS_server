@@ -1,0 +1,271 @@
+import {
+  MigrationInterface,
+  QueryRunner,
+  Table,
+  TableIndex,
+  TableForeignKey,
+} from 'typeorm';
+
+export class CreateSupplier1775248124531 implements MigrationInterface {
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Enum type for supplier source
+    await queryRunner.query(`
+      CREATE TYPE suppliers_source_enum AS ENUM (
+        'manual',
+        'email_parser',
+        'bank_statement',
+        'open_banking'
+      )
+    `);
+
+    await queryRunner.createTable(
+      new Table({
+        name: 'suppliers',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            generationStrategy: 'uuid',
+            default: 'gen_random_uuid()',
+          },
+          {
+            name: 'org_id',
+            type: 'uuid',
+            isNullable: false,
+          },
+          {
+            name: 'name',
+            type: 'varchar',
+            length: '255',
+            isNullable: false,
+          },
+          {
+            name: 'registration_number',
+            type: 'varchar',
+            length: '50',
+            isNullable: true,
+          },
+          {
+            name: 'vat_number',
+            type: 'varchar',
+            length: '50',
+            isNullable: true,
+          },
+          {
+            name: 'email',
+            type: 'varchar',
+            length: '255',
+            isNullable: true,
+          },
+          {
+            name: 'website',
+            type: 'varchar',
+            length: '255',
+            isNullable: true,
+          },
+          {
+            name: 'iban',
+            type: 'varchar',
+            length: '34',
+            isNullable: true,
+          },
+          {
+            // FIX: entity uses `type: 'jsonb'` with `default: '[]'` so aliases
+            // are stored as a proper JSON array, not a comma-separated string.
+            // The old `type: 'text'` would have silently corrupted any alias
+            // containing a comma.
+            name: 'aliases',
+            type: 'jsonb',
+            isNullable: true,
+            default: "'[]'",
+            comment: 'JSON array of alias keywords for fuzzy supplier matching',
+          },
+          {
+            name: 'default_category',
+            type: 'varchar',
+            length: '100',
+            isNullable: true,
+          },
+          {
+            name: 'source',
+            type: 'suppliers_source_enum',
+            default: "'manual'",
+            isNullable: false,
+          },
+          {
+            name: 'is_active',
+            type: 'boolean',
+            default: true,
+            isNullable: false,
+          },
+          {
+            name: 'created_at',
+            type: 'timestamp with time zone',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+          {
+            // FIX: `onUpdate: 'CURRENT_TIMESTAMP'` is MySQL syntax.
+            // Postgres does not support it — we use a trigger instead (below).
+            name: 'updated_at',
+            type: 'timestamp with time zone',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+        ],
+      }),
+      true,
+    );
+
+    // FIX: Postgres auto-update for updated_at requires a trigger function.
+    // We reuse the shared moddatetime / set_updated_at function if it exists,
+    // otherwise create a minimal inline version.
+    await queryRunner.query(`
+      CREATE OR REPLACE FUNCTION set_updated_at()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+
+    await queryRunner.query(`
+      CREATE TRIGGER trg_suppliers_updated_at
+      BEFORE UPDATE ON suppliers
+      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+    `);
+
+    // ── Indexes ──────────────────────────────────────────────────────────────
+
+    await queryRunner.createIndex(
+      'suppliers',
+      new TableIndex({
+        name: 'idx_suppliers_org_id_email',
+        columnNames: ['org_id', 'email'],
+      }),
+    );
+
+    // Partial unique index — org + reg number must be unique when present
+    await queryRunner.createIndex(
+      'suppliers',
+      new TableIndex({
+        name: 'idx_suppliers_org_id_registration_number',
+        columnNames: ['org_id', 'registration_number'],
+        isUnique: true,
+        where: '"registration_number" IS NOT NULL',
+      }),
+    );
+
+    await queryRunner.createIndex(
+      'suppliers',
+      new TableIndex({
+        name: 'idx_suppliers_org_id_vat_number',
+        columnNames: ['org_id', 'vat_number'],
+      }),
+    );
+
+    await queryRunner.createIndex(
+      'suppliers',
+      new TableIndex({
+        name: 'idx_suppliers_org_id_iban',
+        columnNames: ['org_id', 'iban'],
+      }),
+    );
+
+    await queryRunner.createIndex(
+      'suppliers',
+      new TableIndex({
+        name: 'idx_suppliers_name',
+        columnNames: ['name'],
+      }),
+    );
+
+    await queryRunner.createIndex(
+      'suppliers',
+      new TableIndex({
+        name: 'idx_suppliers_org_id_is_active',
+        columnNames: ['org_id', 'is_active'],
+      }),
+    );
+
+    // GIN index on aliases jsonb for fast @> containment queries
+    await queryRunner.query(`
+      CREATE INDEX idx_suppliers_aliases_gin ON suppliers USING gin (aliases);
+    `);
+
+    // Trigram index on name for fuzzy search (requires pg_trgm)
+    await queryRunner
+      .query(
+        `
+        CREATE EXTENSION IF NOT EXISTS pg_trgm;
+        CREATE INDEX idx_suppliers_name_trgm ON suppliers USING gin (name gin_trgm_ops);
+      `,
+      )
+      .catch(() => {
+        console.log(
+          'Note: pg_trgm extension not available, skipping trigram index',
+        );
+      });
+
+    // Foreign key → organizations
+    await queryRunner.createForeignKey(
+      'suppliers',
+      new TableForeignKey({
+        name: 'fk_suppliers_org_id',
+        columnNames: ['org_id'],
+        referencedTableName: 'organizations',
+        referencedColumnNames: ['id'],
+        onDelete: 'CASCADE',
+      }),
+    );
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Drop trigger and function
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS trg_suppliers_updated_at ON suppliers`,
+    );
+    // Only drop the function if no other tables use it
+    // (comment this out if set_updated_at is shared across migrations)
+    await queryRunner.query(`DROP FUNCTION IF EXISTS set_updated_at()`);
+
+    // Drop foreign keys
+    const table = await queryRunner.getTable('suppliers');
+    if (table) {
+      for (const fk of table.foreignKeys) {
+        if (fk.name) await queryRunner.dropForeignKey('suppliers', fk.name);
+      }
+    }
+
+    // Drop indexes
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_name_trgm')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_aliases_gin')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_org_id_is_active')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_name')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_org_id_iban')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_org_id_vat_number')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_org_id_registration_number')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('suppliers', 'idx_suppliers_org_id_email')
+      .catch(() => {});
+
+    await queryRunner.dropTable('suppliers');
+    await queryRunner.query(`DROP TYPE IF EXISTS suppliers_source_enum`);
+  }
+}

@@ -11,6 +11,75 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
+export interface InvoiceParsedData {
+  supplierName?: string;
+  supplierEmail?: string;
+  supplierVatNumber?: string;
+  supplierRegNumber?: string;
+  supplierIban?: string;
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  dueDate?: string;
+  totalAmount?: number;
+  subtotalAmount?: number;
+  vatAmount?: number;
+  vatRate?: number;
+  currency: string;
+  description?: string;
+  lineItems?: {
+    description: string;
+    quantity?: number;
+    unit?: string;
+    unitPrice?: number;
+    vatRate?: number;
+    total: number;
+  }[];
+  paymentReference?: string;
+  notes?: string;
+  confidence: number;
+}
+
+export interface BankStatementParsedData {
+  bankName: string;
+  accountHolder: string;
+  iban: string;
+  periodFrom: string;
+  periodTo: string;
+  currency: string;
+  openingBalance: number;
+  closingBalance: number;
+  transactions: {
+    date: string;
+    valueDate?: string;
+    description: string;
+    amount: number;
+    currency: string;
+    counterpartyName?: string;
+    counterpartyIban?: string;
+    referenceNumber?: string;
+    transactionId?: string;
+    category?: string;
+  }[];
+  confidence: number;
+}
+
+export interface DailyRevenueParsedData {
+  date: string;
+  reportSource: string;
+  totalRevenue: number;
+  currency: string;
+  paymentBreakdown?: {
+    cash: number;
+    card: number;
+    online: number;
+    other: number;
+  };
+  transactionCount?: number;
+  averageTransactionValue?: number;
+  vatIncluded?: boolean | null;
+  notes?: string;
+  confidence: number;
+}
 export interface ProductAIResult {
   name: string;
   nameBn: string;
@@ -597,6 +666,11 @@ Respond with JSON only, no markdown: {"intent":"<category>","confidence":<0.0-1.
     );
   }
 
+  /**
+   * Multi-page PDF invoice parsing
+   * Better than scanReceiptImage for multi-page supplier invoices — sends the full-
+   *document context in one shot and extracts structured invoice data.
+   */
   parseReceiptJSON(
     raw: string,
   ): import('../bookkeeping/entities/bookkeeping.entities').ReceiptParsedData {
@@ -631,435 +705,220 @@ Respond with JSON only, no markdown: {"intent":"<category>","confidence":<0.0-1.
       rawText: parsed.rawText,
     };
   }
+
+  async parseInvoicePdf(
+    pdfBase64: string,
+    hint?: { supplierEmail?: string; subject?: string },
+  ): Promise<InvoiceParsedData> {
+    const contextHint = hint
+      ? `Context: Email from ${hint.supplierEmail ?? 'unknown'}, subject: "${hint.subject ?? ''}".`
+      : '';
+
+    const prompt = `You are an expert invoice parser for Estonian and EU businesses.
+${contextHint}
+Parse this invoice PDF and extract all available financial data.
+ 
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "supplierName": "Seller/vendor company name",
+  "supplierEmail": "seller email if visible or null",
+  "supplierVatNumber": "VAT/KM registration number e.g. EE123456789 or null",
+  "supplierRegNumber": "Company registration number or null",
+  "supplierIban": "Seller bank IBAN if shown or null",
+  "invoiceNumber": "Invoice number/ID or null",
+  "invoiceDate": "YYYY-MM-DD or null",
+  "dueDate": "YYYY-MM-DD or null",
+  "totalAmount": <total payable including VAT as number>,
+  "subtotalAmount": <amount before VAT or null>,
+  "vatAmount": <VAT amount as number or null>,
+  "vatRate": <VAT % e.g. 22 or null>,
+  "currency": "EUR",
+  "description": "One sentence summary of what was purchased",
+  "lineItems": [
+    {
+      "description": "item/service name",
+      "quantity": 1,
+      "unit": "unit/hour/kg/etc",
+      "unitPrice": 10.00,
+      "vatRate": 22,
+      "total": 12.20
+    }
+  ],
+  "paymentReference": "Payment reference number or null",
+  "notes": "Any important notes or payment terms or null",
+  "confidence": <0.0-1.0 confidence in extraction quality>
 }
-/* eslint-disable no-constant-binary-expression */
-// /* eslint-disable @typescript-eslint/no-unsafe-return */
-// // apps/api/src/modules/ai/ai.service.ts
-// // Central AI service — all Claude API calls go through here
-// // Each method returns structured JSON Claude generates
+ 
+Estonian VAT (KM) rates: 22% standard, 9% reduced (books, medicine, hotels), 0% exports.
+If the document is not an invoice, return { "confidence": 0 }.`;
 
-// /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-// /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-// import { Injectable, Logger } from '@nestjs/common';
-// import { ConfigService } from '@nestjs/config';
-// import { HttpService } from '@nestjs/axios';
-// import { firstValueFrom } from 'rxjs';
+    const raw = await this.callClaude(
+      prompt,
+      undefined,
+      pdfBase64,
+      'application/pdf',
+      this.MODEL,
+      2000,
+    );
+    return this.parseInvoiceData(raw);
+  }
+  async parseBankStatementPdf(
+    pdfBase64: string,
+    bankHint?: string,
+  ): Promise<BankStatementParsedData> {
+    const prompt = `You are an expert bank statement parser for Estonian banks.
+${bankHint ? `This is a ${bankHint.toUpperCase()} bank statement.` : ''}
+Parse ALL transactions from this bank statement.
+ 
+RULES:
+- Money leaving the account = negative amounts (expenses/payments)
+- Money arriving = positive amounts (income/transfers in)
+- Include EVERY transaction, do not skip or summarise
+- Extract all available counterparty and reference data
+ 
+Return ONLY valid JSON:
+{
+  "bankName": "LHV / SEB / Swedbank / Luminor / Coop",
+  "accountHolder": "Full name of account holder",
+  "iban": "Account IBAN",
+  "periodFrom": "YYYY-MM-DD",
+  "periodTo": "YYYY-MM-DD",
+  "currency": "EUR",
+  "openingBalance": 0.00,
+  "closingBalance": 0.00,
+  "transactions": [
+    {
+      "date": "YYYY-MM-DD",
+      "valueDate": "YYYY-MM-DD or null",
+      "description": "Full transaction narration / reference text",
+      "amount": -50.00,
+      "currency": "EUR",
+      "counterpartyName": "Other party name or null",
+      "counterpartyIban": "Other party IBAN or null",
+      "referenceNumber": "Payment reference number or null",
+      "transactionId": "Bank's unique transaction ID or null",
+      "category": "AI-guessed category: Fuel, Rent, Telecoms, Payroll, Taxes, Utilities, Food, Income, Other"
+    }
+  ],
+  "confidence": 0.95
+}`;
 
-// export interface ProductAIResult {
-//   name: string;
-//   nameBn: string;
-//   description: string;
-//   descriptionBn: string;
-//   price: number;
-//   comparePrice: number | null;
-//   category: string;
-//   keywords: string[];
-//   captions: { en: string; bn: string }[];
-//   stockHint: number;
-// }
+    const raw = await this.callClaude(
+      prompt,
+      undefined,
+      pdfBase64,
+      'application/pdf',
+      this.MODEL,
+      4000,
+    );
+    return this.parseBankStatementData(raw);
+  }
 
-// export interface StoreSetupResult {
-//   name: string;
-//   description: string;
-//   descriptionBn: string;
-//   announcement: string;
-//   themeColor: string;
-//   keywords: string[];
-//   deliveryFee: number;
-//   heroTitle: string;
-//   heroSubtitle: string;
-//   heroCta: string;
-// }
+  async parseDailyRevenueEmail(
+    emailBody: string,
+    emailSubject: string,
+    emailDate: string,
+  ): Promise<DailyRevenueParsedData> {
+    const prompt = `You are a revenue data extraction expert for restaurants and retail businesses.
+Parse this daily sales/revenue report email and extract the total revenue figure.
+ 
+Email subject: "${emailSubject}"
+Email date: ${emailDate}
+ 
+Look for these fields (not all may be present):
+- Total sales / net sales / gross revenue / päevakäive / kogu müük
+- Payment method breakdown (cash/card/online)
+- Number of transactions/covers
+- Average transaction value
+ 
+Common report formats: Poster POS, iiko, Bolt Food daily summary, Wolt partner report,
+Forkeeps, Lightspeed, Square, custom restaurant systems.
+ 
+Return ONLY valid JSON:
+{
+  "date": "${emailDate.slice(0, 10)}",
+  "reportSource": "System/platform name e.g. Poster POS, Bolt Food, Wolt",
+  "totalRevenue": <total revenue as positive number>,
+  "currency": "EUR",
+  "paymentBreakdown": {
+    "cash": 0,
+    "card": 0,
+    "online": 0,
+    "other": 0
+  },
+  "transactionCount": <number of transactions or null>,
+  "averageTransactionValue": <average or null>,
+  "vatIncluded": <true if revenue is VAT-inclusive, false if ex-VAT, null if unknown>,
+  "notes": "Any special notes or null",
+  "confidence": <0.0-1.0>
+}
+ 
+If no revenue figure can be found, return { "confidence": 0, "totalRevenue": 0, "currency": "EUR", "date": "${emailDate.slice(0, 10)}", "reportSource": "unknown" }.`;
 
-// export interface InboxReplyResult {
-//   replies: { text: string; tone: string }[];
-//   intent: 'order' | 'inquiry' | 'complaint' | 'payment' | 'tracking' | 'other';
-//   suggestedAction: string | null;
-//   language: 'en' | 'bn' | 'mixed';
-// }
+    const raw = await this.callClaude(
+      prompt + '\n\nEmail body:\n' + emailBody.slice(0, 3000),
+      undefined,
+      undefined,
+      undefined,
+      this.HAIKU, // Haiku is fast enough for text-only parsing
+      800,
+    );
+    return this.parseDailyRevenueData(raw);
+  }
 
-// export interface GrowthInsight {
-//   type: 'warning' | 'opportunity' | 'tip' | 'achievement';
-//   title: string;
-//   message: string;
-//   action: string | null;
-//   actionRoute: string | null;
-// }
+  private parseInvoiceData(raw: string): InvoiceParsedData {
+    const parsed = this.parseJSON<InvoiceParsedData>(raw, {
+      currency: 'EUR',
+      confidence: 0,
+    });
+    return {
+      ...parsed,
+      totalAmount: parsed.totalAmount ? Number(parsed.totalAmount) : undefined,
+      subtotalAmount: parsed.subtotalAmount
+        ? Number(parsed.subtotalAmount)
+        : undefined,
+      vatAmount: parsed.vatAmount ? Number(parsed.vatAmount) : undefined,
+      currency: parsed.currency ?? 'EUR',
+      confidence: Number(parsed.confidence) || 0,
+    };
+  }
 
-// export interface GrowthReportResult {
-//   insights: GrowthInsight[];
-//   topProduct: string | null;
-//   fbCaption: string | null;
-//   weekSummary: string;
-// }
-
-// // ── NEW: comment intent classification ────────────────────────────────────────
-
-// export type CommentIntentResult = {
-//   intent:
-//     | 'price_query'
-//     | 'buy_intent'
-//     | 'availability'
-//     | 'complaint'
-//     | 'spam'
-//     | 'other';
-//   confidence: number;
-// };
-// @Injectable()
-// export class AiService {
-//   private readonly logger = new Logger(AiService.name);
-//   private readonly CLAUDE_API = 'https://api.anthropic.com/v1/messages';
-//   private readonly MODEL = 'claude-sonnet-4-5';
-
-//   constructor(
-//     private config: ConfigService,
-//     private http: HttpService,
-//   ) {}
-
-//   private async callClaude(
-//     prompt: string,
-//     imageUrl?: string,
-//     imageBase64?: string,
-//     imageMime?: string,
-//   ): Promise<string> {
-//     try {
-//       const apiKey = this.config.getOrThrow<string>('ANTHROPIC_API_KEY');
-
-//       const content: any[] = [];
-
-//       // Add image if provided
-//       if (imageBase64 && imageMime) {
-//         content.push({
-//           type: 'image',
-//           source: { type: 'base64', media_type: imageMime, data: imageBase64 },
-//         });
-//       } else if (imageUrl) {
-//         content.push({
-//           type: 'image',
-//           source: { type: 'url', url: imageUrl },
-//         });
-//       }
-
-//       content.push({ type: 'text', text: prompt });
-
-//       const res = await firstValueFrom(
-//         this.http.post(
-//           this.CLAUDE_API,
-//           {
-//             model: this.MODEL,
-//             max_tokens: 1500,
-//             messages: [{ role: 'user', content }],
-//           },
-//           {
-//             headers: {
-//               'x-api-key': apiKey,
-//               'anthropic-version': '2023-06-01',
-//               'content-type': 'application/json',
-//             },
-//           },
-//         ),
-//       );
-
-//       const text = res.data?.content?.[0]?.text ?? '';
-//       return text;
-//     } catch (err) {
-//       this.logger.error(
-//         `[AI] Anthropic API error: ${JSON.stringify(err?.response?.data ?? err?.message)}`,
-//       );
-//       throw new Error(
-//         err?.response?.data?.error?.message ?? 'AI service failed',
-//       );
-//     }
-//   }
-
-//   private parseJSON<T>(text: string, fallback: T): T {
-//     try {
-//       const clean = text.replace(/```json|```/g, '').trim();
-//       const start = clean.indexOf('{');
-//       const end = clean.lastIndexOf('}');
-//       if (start === -1 || end === -1) return fallback;
-//       return JSON.parse(clean.slice(start, end + 1)) as T;
-//     } catch {
-//       this.logger.warn('[AI] JSON parse failed');
-//       return fallback;
-//     }
-//   }
-
-//   // ── Feature 1+2: Product from image ────────────────────────────────────────
-
-//   async generateProductFromImage(
-//     imageUrl?: string,
-//     imageBase64?: string,
-//     imageMime?: string,
-//     storeName?: string,
-//     currency = 'BDT',
-//   ): Promise<ProductAIResult> {
-//     const prompt = `You are an e-commerce product listing expert for Bangladesh market.
-// Analyze this product image and generate a complete product listing.
-
-// Store context: ${storeName ?? 'BD online shop'}, Currency: ${currency}
-
-// Return ONLY valid JSON (no markdown, no explanation):
-// {
-//   "name": "Product name in English (concise, searchable)",
-//   "nameBn": "পণ্যের নাম বাংলায়",
-//   "description": "Compelling 2-3 sentence English description highlighting key features and benefits",
-//   "descriptionBn": "বাংলায় ২-৩ বাক্যে পণ্যের বিবরণ, মূল বৈশিষ্ট্য সহ",
-//   "price": <suggested price in ${currency} as integer, realistic for BD market>,
-//   "comparePrice": <original/MRP price or null>,
-//   "category": "Most appropriate category (e.g. Clothing, Electronics, Food, Beauty, Home, etc.)",
-//   "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-//   "captions": [
-//     {"en": "Engaging Facebook/Instagram caption in English with emojis and CTA", "bn": "বাংলায় আকর্ষণীয় ক্যাপশন ইমোজি সহ"},
-//     {"en": "Second caption variant focusing on price/deal", "bn": "দাম/অফার কেন্দ্রিক দ্বিতীয় ক্যাপশন"},
-//     {"en": "Third caption variant — storytelling angle", "bn": "গল্প বলার ধরনে তৃতীয় ক্যাপশন"}
-//   ],
-//   "stockHint": <suggested initial stock quantity>
-// }`;
-
-//     const text = await this.callClaude(
-//       prompt,
-//       imageUrl,
-//       imageBase64,
-//       imageMime,
-//     );
-//     return this.parseJSON<ProductAIResult>(text, {
-//       name: 'Product',
-//       nameBn: 'পণ্য',
-//       description: '',
-//       descriptionBn: '',
-//       price: 0,
-//       comparePrice: null,
-//       category: 'General',
-//       keywords: [],
-//       captions: [],
-//       stockHint: 10,
-//     });
-//   }
-
-//   // ── Feature 3: AI Store Setup ───────────────────────────────────────────────
-
-//   async generateStoreSetup(
-//     businessName: string,
-//     businessType: string,
-//     targetAudience?: string,
-//   ): Promise<StoreSetupResult> {
-//     const prompt = `You are a BD e-commerce store setup expert.
-// Generate complete store settings for:
-// Business: "${businessName}"
-// Type: "${businessType}"
-// Target: "${targetAudience ?? 'general BD customers'}"
-
-// Return ONLY valid JSON:
-// {
-//   "name": "Catchy store display name",
-//   "description": "Compelling 1-2 sentence English store description",
-//   "descriptionBn": "বাংলায় স্টোরের বিবরণ",
-//   "announcement": "Short promotional announcement bar text (e.g. '🎉 Free delivery on orders over ৳500!')",
-//   "themeColor": "<hex color that matches the business type, e.g. fashion=#ec4899, food=#f97316, tech=#3b82f6>",
-//   "keywords": ["seo keyword 1", "keyword 2", "keyword 3", "keyword 4", "keyword 5"],
-//   "deliveryFee": <typical BD delivery fee in BDT, 0 if free shipping business>,
-//   "heroTitle": "Catchy hero banner headline",
-//   "heroSubtitle": "Supporting hero subtitle",
-//   "heroCta": "Call to action button text"
-// }`;
-
-//     const text = await this.callClaude(prompt);
-//     return this.parseJSON<StoreSetupResult>(text, {
-//       name: businessName,
-//       description: '',
-//       descriptionBn: '',
-//       announcement: null as any,
-//       themeColor: '#6366f1',
-//       keywords: [],
-//       deliveryFee: 60,
-//       heroTitle: businessName,
-//       heroSubtitle: 'Quality products',
-//       heroCta: 'Shop Now',
-//     });
-//   }
-
-//   // ── Feature 4: Smart Inbox Reply ────────────────────────────────────────────
-
-//   async generateInboxReply(
-//     customerMessage: string,
-//     storeName: string,
-//     conversationHistory?: string,
-//     orderContext?: string,
-//   ): Promise<InboxReplyResult> {
-//     const prompt = `You are a helpful customer service agent for "${storeName}", a BD e-commerce store.
-
-// Customer message: "${customerMessage}"
-// ${conversationHistory ? `Recent conversation:\n${conversationHistory}` : ''}
-// ${orderContext ? `Order context: ${orderContext}` : ''}
-
-// Detect the language (English/Bengali/mixed) and generate appropriate replies.
-
-// Return ONLY valid JSON:
-// {
-//   "replies": [
-//     {"text": "Friendly professional reply", "tone": "professional"},
-//     {"text": "Warm casual reply", "tone": "friendly"},
-//     {"text": "Brief direct reply", "tone": "brief"}
-//   ],
-//   "intent": "<one of: order|inquiry|complaint|payment|tracking|other>",
-//   "suggestedAction": "<null or one of: create_order|send_payment_link|book_courier|show_tracking>",
-//   "language": "<en|bn|mixed>"
-// }`;
-
-//     const text = await this.callClaude(prompt);
-//     return this.parseJSON<InboxReplyResult>(text, {
-//       replies: [
-//         {
-//           text: 'Thank you for your message! How can I help you?',
-//           tone: 'professional',
-//         },
-//       ],
-//       intent: 'other',
-//       suggestedAction: null,
-//       language: 'en',
-//     });
-//   }
-
-//   // ── Feature 5: Growth Report ────────────────────────────────────────────────
-
-//   async generateGrowthReport(
-//     orgStats: {
-//       totalOrders: number;
-//       totalRevenue: number;
-//       topProducts: string[];
-//       lowStockProducts: string[];
-//       noDescriptionProducts: string[];
-//       avgOrderValue: number;
-//       pendingOrders: number;
-//     },
-//     storeName: string,
-//   ): Promise<GrowthReportResult> {
-//     const prompt = `You are a BD e-commerce growth advisor for "${storeName}".
-
-// Store stats this week:
-// - Total orders: ${orgStats.totalOrders}
-// - Revenue: ৳${orgStats.totalRevenue}
-// - Avg order: ৳${orgStats.avgOrderValue}
-// - Pending orders: ${orgStats.pendingOrders}
-// - Top products: ${orgStats.topProducts.join(', ') || 'none'}
-// - Low stock: ${orgStats.lowStockProducts.join(', ') || 'none'}
-// - No description: ${orgStats.noDescriptionProducts.join(', ') || 'none'}
-
-// Generate actionable insights for a BD seller.
-
-// Return ONLY valid JSON:
-// {
-//   "insights": [
-//     {"type": "warning|opportunity|tip|achievement", "title": "Short title", "message": "Actionable 1-2 sentence insight", "action": "Button text or null", "actionRoute": "/route or null"}
-//   ],
-//   "topProduct": "Name of top product or null",
-//   "fbCaption": "Ready-to-post Facebook promotional caption for top product with emojis",
-//   "weekSummary": "1 sentence positive week summary"
-// }
-
-// Generate 3-5 insights maximum. Be specific and actionable for BD market.`;
-
-//     const text = await this.callClaude(prompt);
-//     return this.parseJSON<GrowthReportResult>(text, {
-//       insights: [],
-//       topProduct: null,
-//       fbCaption: null,
-//       weekSummary: 'Keep growing!',
-//     });
-//   }
-
-//   // ── Facebook photo fetcher ──────────────────────────────────────────────────
-
-//   async fetchFacebookPagePhotos(
-//     pageId: string,
-//     accessToken: string,
-//     limit = 20,
-//   ): Promise<
-//     { id: string; url: string; caption?: string; createdAt: string }[]
-//   > {
-//     try {
-//       const res = await firstValueFrom(
-//         this.http.get(`https://graph.facebook.com/v19.0/${pageId}/photos`, {
-//           params: {
-//             fields: 'images,name,created_time',
-//             limit,
-//             type: 'uploaded',
-//             access_token: accessToken,
-//           },
-//         }),
-//       );
-
-//       const photos = res.data?.data ?? [];
-//       return photos
-//         .map((p: any) => ({
-//           id: p.id,
-//           // Get largest image
-//           url: p.images?.[0]?.source ?? '',
-//           caption: p.name ?? undefined,
-//           createdAt: p.created_time,
-//         }))
-//         .filter((p: any) => p.url);
-//     } catch (e: any) {
-//       this.logger.warn(`[AI] FB photos fetch failed: ${e?.message}`);
-//       return [];
-//     }
-//   }
-//   // ── Comment intent classification (used by CommentsService) ──────────────
-//   /**
-//    * Classify a single social media comment into an intent category.
-//    * Uses claude-haiku for speed and cost efficiency — classification
-//    * runs on every incoming comment so we want the cheapest model.
-//    * CommentsService calls this; no other service needs to import Anthropic SDK.
-//    */
-//   async classifyCommentIntent(text: string): Promise<CommentIntentResult> {
-//     const prompt = `Classify this social media comment into exactly one intent category.
-// Comment: "${text}"
-
-// Categories:
-// - price_query: asking about price, cost, rate, কত, দাম
-// - buy_intent: wants to buy, interested, inbox, DM, order
-// - availability: asking if available, আছে, stock
-// - complaint: negative, unhappy, problem
-// - spam: irrelevant, promotional, repeated
-// - other: anything else
-
-// Respond with JSON only, no markdown: {"intent":"<category>","confidence":<0.0-1.0>}`;
-
-//     try {
-//       const apiKey = this.config.getOrThrow<string>('ANTHROPIC_API_KEY');
-
-//       // Use haiku — cheapest model, classification doesn't need sonnet
-//       const res = await firstValueFrom(
-//         this.http.post(
-//           this.CLAUDE_API,
-//           {
-//             model: 'claude-haiku-4-5-20251001',
-//             max_tokens: 100,
-//             messages: [{ role: 'user', content: prompt }],
-//           },
-//           {
-//             headers: {
-//               'x-api-key': apiKey,
-//               'anthropic-version': '2023-06-01',
-//               'content-type': 'application/json',
-//             },
-//           },
-//         ),
-//       );
-
-//       const raw = (res.data?.content?.[0]?.text ?? '{}').trim();
-//       const parsed = this.parseJSON<{ intent: string; confidence: number }>(
-//         raw,
-//         { intent: 'other', confidence: 0.5 },
-//       );
-//       return {
-//         intent: (parsed.intent as CommentIntentResult['intent']) ?? 'other',
-//         confidence: Number(parsed.confidence) ?? 0.5,
-//       };
-//     } catch (err) {
-//       this.logger.warn(`[AI] Comment classification failed: ${err?.message}`);
-//       return { intent: 'other', confidence: 0 };
-//     }
-//   }
-// }
+  private parseBankStatementData(raw: string): BankStatementParsedData {
+    const parsed = this.parseJSON<BankStatementParsedData>(raw, {
+      bankName: 'Unknown',
+      accountHolder: '',
+      iban: '',
+      periodFrom: '',
+      periodTo: '',
+      currency: 'EUR',
+      openingBalance: 0,
+      closingBalance: 0,
+      transactions: [],
+      confidence: 0,
+    });
+    return {
+      ...parsed,
+      openingBalance: Number(parsed.openingBalance) || 0,
+      closingBalance: Number(parsed.closingBalance) || 0,
+      transactions: (parsed.transactions ?? []).map((t) => ({
+        ...t,
+        amount: Number(t.amount) || 0,
+      })),
+      confidence: Number(parsed.confidence) || 0,
+    };
+  }
+  private parseDailyRevenueData(raw: string): DailyRevenueParsedData {
+    const parsed = this.parseJSON<DailyRevenueParsedData>(raw, {
+      date: new Date().toISOString().split('T')[0],
+      reportSource: 'unknown',
+      totalRevenue: 0,
+      currency: 'EUR',
+      confidence: 0,
+    });
+    return {
+      ...parsed,
+      totalRevenue: Number(parsed.totalRevenue) || 0,
+      confidence: Number(parsed.confidence) || 0,
+    };
+  }
+}

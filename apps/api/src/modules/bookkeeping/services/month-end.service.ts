@@ -1,11 +1,9 @@
+/* eslint-disable @typescript-eslint/require-await */
 // apps/api/src/modules/bookkeeping/services/month-end.service.ts
 //
 // Runs at month close (manually or via scheduler on the 1st).
 // Reads bookkeeping_entries → computes tax obligations → updates MonthlyTaxPeriod
 // → queues EMTA filing jobs if autoFileEnabled.
-//
-// Persona-aware: restaurant, ecommerce, freelancer FIE, and OÜ all have
-// different applicable taxes.
 
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -30,10 +28,7 @@ import { ESTONIA_TAX_QUEUE_NAMES } from '../../estonia-tax/estonia-tax.constants
 // 2025+ rates
 const INCOME_TAX = 0.22;
 const SOCIAL_TAX = 0.33;
-const UNEMP_EMP = 0.016;
 const UNEMP_EMPL = 0.008;
-const PENSION_II = 0.02;
-// FIE: social tax base is net business income, not gross salary
 const FIE_SOCIAL_MIN_BASE = 725; // Monthly minimum social tax base (2025)
 
 @Injectable()
@@ -60,8 +55,7 @@ export class MonthEndService {
     private readonly tsdQueue: Queue,
   ) {}
 
-  // ─── Cron: runs at 02:00 on the 1st of every month (Tallinn time) ─────────
-  // Closes prior month, calculates taxes, queues filings for orgs with autoFile.
+  // ─── Cron: 02:00 on the 1st of every month, Tallinn time ─────────────────
 
   @Cron('0 2 1 * *', { name: 'month-end-close', timeZone: 'Europe/Tallinn' })
   async runMonthEndForAll(): Promise<void> {
@@ -72,7 +66,6 @@ export class MonthEndService {
 
     this.logger.log(`[Month-end] Running for ${priorYear}/${priorMonth}`);
 
-    // Find all open periods for prior month
     const openPeriods = await this.periodRepo.find({
       where: { year: priorYear, month: priorMonth, status: PeriodStatus.OPEN },
     });
@@ -91,7 +84,6 @@ export class MonthEndService {
   }
 
   // ─── Close a single period ────────────────────────────────────────────────
-  // Called by cron OR manually by user from the UI ("Calculate my taxes").
 
   async closePeriod(
     orgId: string,
@@ -99,16 +91,14 @@ export class MonthEndService {
     month: number,
     previewOnly = false,
   ): Promise<MonthlyTaxPeriod> {
-    const profile = await this.profileRepo.findOne({
-      where: { orgId },
-    });
+    const profile = await this.profileRepo.findOne({ where: { orgId } });
     if (!profile) {
       throw new BadRequestException(
         'Tax profile not set up. Complete onboarding first.',
       );
     }
 
-    let period = await this.periodRepo.findOne({
+    const period = await this.periodRepo.findOne({
       where: { orgId, year, month },
     });
     if (!period) {
@@ -122,7 +112,6 @@ export class MonthEndService {
       await this.periodRepo.save(period);
     }
 
-    // Load all confirmed entries for the period
     const entries = await this.entryRepo.find({
       where: {
         orgId,
@@ -132,7 +121,6 @@ export class MonthEndService {
       },
     });
 
-    // Calculate persona-appropriate taxes
     const breakdown = await this.calculateTaxes(
       profile,
       period,
@@ -140,16 +128,24 @@ export class MonthEndService {
       year,
       month,
     );
-
     period.taxBreakdown = breakdown;
 
     if (!previewOnly) {
       period.status = PeriodStatus.REVIEW;
       await this.periodRepo.save(period);
 
-      // Auto-file if enabled
-      if (profile.autoFileEnabled && profile.emtaApiToken) {
-        await this.queueFilings(orgId, year, month, profile);
+      // FIX: emtaApiToken has select:false — check existence via a separate
+      // targeted query rather than trusting the profile object directly.
+      if (profile.autoFileEnabled) {
+        const hasToken = await this.profileRepo
+          .createQueryBuilder('p')
+          .addSelect('p.emtaApiToken')
+          .where('p.orgId = :orgId', { orgId })
+          .getOne();
+
+        if (hasToken?.emtaApiToken) {
+          await this.queueFilings(orgId, year, month, profile);
+        }
       }
     }
 
@@ -175,6 +171,7 @@ export class MonthEndService {
       (e) => e.entryType === EntryType.SALARY,
     );
 
+    // FIX: all decimal columns are strings — always Number() before arithmetic
     const grossIncome = incomeEntries.reduce(
       (s, e) => s + Number(e.grossAmount),
       0,
@@ -193,46 +190,34 @@ export class MonthEndService {
     );
     const netProfit = netIncome - totalExpense - totalSalary;
 
-    // VAT (applies to all VAT-registered businesses)
     const vatPayable =
       profile.vatStatus !== VatRegistrationStatus.NOT_REGISTERED
-        ? Number(period.vatPayable)
+        ? Number(period.vatPayable) // period.vatPayable is a string decimal
         : 0;
 
-    // VAT by rate breakdown for KMD form
-    const vatByRate = this.buildVatByRate(
-      incomeEntries,
-      expenseEntries,
-      profile,
-    );
+    const vatByRate = this.buildVatByRate(incomeEntries, expenseEntries);
 
-    // Deadlines
+    // Filing deadlines (10th for TSD, 20th for KMD)
     const nextMonth = month === 12 ? 1 : month + 1;
     const nextYear = month === 12 ? year + 1 : year;
     const tsdDeadline = `${nextYear}-${String(nextMonth).padStart(2, '0')}-10`;
     const kmdDeadline = `${nextYear}-${String(nextMonth).padStart(2, '0')}-20`;
 
-    // Persona-specific tax calculations
     let incomeTaxPayable = 0;
     let socialTaxPayable = 0;
     let unemploymentTax = 0;
 
     switch (profile.persona) {
       case BusinessPersona.FREELANCER_FIE: {
-        // FIE: pays income tax (22%) + social tax (33%) on net business income
-        // Social tax minimum: 33% of monthly minimum base (€725 in 2025)
         const socialTaxBase = Math.max(netProfit, FIE_SOCIAL_MIN_BASE);
         socialTaxPayable = +(socialTaxBase * SOCIAL_TAX).toFixed(2);
         incomeTaxPayable = +(Math.max(0, netProfit) * INCOME_TAX).toFixed(2);
-        // FIE also pays unemployment insurance as employer
         unemploymentTax = +(grossIncome * UNEMP_EMPL).toFixed(2);
         break;
       }
 
       case BusinessPersona.COMPANY_OU: {
-        // OÜ: no income tax on retained earnings
-        // Income tax only if distributing dividends (not tracked here — separate flow)
-        // Social tax from staff salaries only
+        // OÜ: no CIT on retained earnings — only on salary payroll
         socialTaxPayable = Number(period.totalSocialTax);
         unemploymentTax = salaryEntries.reduce(
           (s, e) => s + Number(e.grossAmount) * UNEMP_EMPL,
@@ -243,7 +228,6 @@ export class MonthEndService {
 
       case BusinessPersona.RESTAURANT:
       case BusinessPersona.ECOMMERCE: {
-        // Treat as OÜ by default unless sole trader flag is set
         if (profile.isSoleTraderFie) {
           const socialTaxBase = Math.max(netProfit, FIE_SOCIAL_MIN_BASE);
           socialTaxPayable = +(socialTaxBase * SOCIAL_TAX).toFixed(2);
@@ -280,13 +264,12 @@ export class MonthEndService {
   private buildVatByRate(
     incomeEntries: BookkeepingEntry[],
     expenseEntries: BookkeepingEntry[],
-    profile: TaxProfile,
   ): TaxBreakdown['vatByRate'] {
     const rates = [0, 9, 13, 24];
     return rates
       .map((rate) => {
         const salesAtRate = incomeEntries.filter(
-          (e) => Number(e.vatRate) === rate,
+          (e) => Number(e.vatRate) === rate && !e.excludeFromVat,
         );
         const purchasesAtRate = expenseEntries.filter(
           (e) => Number(e.vatRate) === rate,
@@ -317,7 +300,6 @@ export class MonthEndService {
     month: number,
     profile: TaxProfile,
   ): Promise<void> {
-    // KMD — only if VAT registered
     if (profile.vatStatus !== VatRegistrationStatus.NOT_REGISTERED) {
       await this.vatQueue.add('file-kmd', {
         orgId,
@@ -329,7 +311,6 @@ export class MonthEndService {
       );
     }
 
-    // TSD — if any salary entries exist
     const hasSalaries = await this.entryRepo.count({
       where: {
         orgId,
@@ -339,6 +320,7 @@ export class MonthEndService {
         status: EntryStatus.CONFIRMED,
       },
     });
+
     if (hasSalaries > 0) {
       await this.tsdQueue.add('file-tsd', {
         orgId,
@@ -365,16 +347,22 @@ export class MonthEndService {
       where: { orgId, year, month },
     });
     period.status = PeriodStatus.FILED;
-    period.kmdSubmissionId = kmdSubmissionId ?? period.kmdSubmissionId;
-    period.tsdSubmissionId = tsdSubmissionId ?? period.tsdSubmissionId;
+    if (kmdSubmissionId) period.kmdSubmissionId = kmdSubmissionId;
+    if (tsdSubmissionId) period.tsdSubmissionId = tsdSubmissionId;
     period.filedAt = new Date();
-    period.filedByUserId = filedByUserId || '';
+    // FIX: was `filedByUserId || ''` — empty string is misleading on a nullable
+    // column. Use undefined so the DB stores NULL when no user is provided.
+    period.filedByUserId = filedByUserId ?? null!;
     return this.periodRepo.save(period);
   }
 
-  // ─── Get period with full summary ─────────────────────────────────────────
+  // ─── Queries ──────────────────────────────────────────────────────────────
 
-  async getPeriod(orgId: string, year: number, month: number) {
+  async getPeriod(
+    orgId: string,
+    year: number,
+    month: number,
+  ): Promise<{ period: MonthlyTaxPeriod | null; entryCount: number }> {
     const period = await this.periodRepo.findOne({
       where: { orgId, year, month },
     });
@@ -391,9 +379,7 @@ export class MonthEndService {
     return { period, entryCount };
   }
 
-  // ─── List all periods for org ─────────────────────────────────────────────
-
-  async listPeriods(orgId: string) {
+  async listPeriods(orgId: string): Promise<MonthlyTaxPeriod[]> {
     return this.periodRepo.find({
       where: { orgId },
       order: { year: 'DESC', month: 'DESC' },

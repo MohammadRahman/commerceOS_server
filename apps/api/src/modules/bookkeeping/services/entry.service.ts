@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 // apps/api/src/modules/bookkeeping/services/entry.service.ts
 //
 // The write path for every money event.
@@ -26,6 +24,7 @@ import {
   EmployeeRecord,
   SalaryType,
   PLATFORM_COMMISSION_RATES,
+  ReceiptParsedData,
 } from '../entities/bookkeeping.entities';
 import {
   AddDailySalesDto,
@@ -36,7 +35,8 @@ import {
   ListEntriesDto,
 } from '../dto/bookkeeping.dto';
 
-// Estonian payroll constants (2025+)
+// ─── Estonian payroll constants (2025) ───────────────────────────────────────
+
 const INCOME_TAX_RATE = 0.22;
 const SOCIAL_TAX_RATE = 0.33;
 const UNEMP_EMPLOYEE = 0.016;
@@ -45,6 +45,8 @@ const PENSION_II = 0.02;
 const EXEMPTION_MAX = 654;
 const EXEMPTION_TAPER_LO = 1_200;
 const EXEMPTION_TAPER_HI = 2_100;
+
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function calcBasicExemption(gross: number): number {
   if (gross <= EXEMPTION_TAPER_LO) return EXEMPTION_MAX;
@@ -56,15 +58,25 @@ function calcBasicExemption(gross: number): number {
   ).toFixed(2);
 }
 
-function splitVat(gross: number, vatRate: number) {
+/**
+ * Splits a VAT-inclusive gross amount into { vatAmount, netAmount }.
+ * grossAmount = netAmount + vatAmount
+ * vatAmount   = gross - gross / (1 + vatRate/100)
+ */
+function splitVat(
+  gross: number,
+  vatRate: number,
+): { vatAmount: number; netAmount: number } {
   const vatAmount = +(gross - gross / (1 + vatRate / 100)).toFixed(2);
   const netAmount = +(gross - vatAmount).toFixed(2);
   return { vatAmount, netAmount };
 }
 
-function periodFromDate(d: Date) {
+function periodFromDate(d: Date): { taxYear: number; taxMonth: number } {
   return { taxYear: d.getFullYear(), taxMonth: d.getMonth() + 1 };
 }
+
+// ─── Public result types ──────────────────────────────────────────────────────
 
 export interface PayrollBreakdown {
   salaryType: SalaryType;
@@ -83,7 +95,6 @@ export interface PayrollBreakdown {
   taxAsPercentOfCost: number;
 }
 
-// Result of adding a third party payout — two entries created
 export interface ThirdPartyPayoutResult {
   incomeEntry: BookkeepingEntry; // SALES_THIRD_PARTY — full gross order value
   commissionEntry: BookkeepingEntry; // PLATFORM_COMMISSION — deductible expense
@@ -92,6 +103,9 @@ export interface ThirdPartyPayoutResult {
   payoutAmount: number;
   effectiveCommissionRate: number;
 }
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
 @Injectable()
 export class EntryService {
   private readonly logger = new Logger(EntryService.name);
@@ -110,12 +124,10 @@ export class EntryService {
     private readonly employeeRepo: Repository<EmployeeRecord>,
   ) {}
 
-  // ─── Tax profile helper ──────────────────────────────────────────────────
+  // ─── Tax profile ──────────────────────────────────────────────────────────
 
   private async getProfile(orgId: string): Promise<TaxProfile> {
-    const profile = await this.profileRepo.findOne({
-      where: { orgId },
-    });
+    const profile = await this.profileRepo.findOne({ where: { orgId } });
     if (!profile) {
       throw new NotFoundException(
         'Tax profile not found. Complete onboarding at /bookkeeping/setup first.',
@@ -124,7 +136,7 @@ export class EntryService {
     return profile;
   }
 
-  // ─── Ensure period exists ────────────────────────────────────────────────
+  // ─── Ensure period exists ─────────────────────────────────────────────────
   // Called on every entry write. Creates the period row if this is the
   // first entry for a given month.
 
@@ -148,10 +160,7 @@ export class EntryService {
     return period;
   }
 
-  // ─── Add income ──────────────────────────────────────────────────────────
-  // Restaurant: daily cash/card sales
-  // Freelancer: client invoice payment
-  // Ecommerce: manual top-up (orders auto-sync via order hook)
+  // ─── Add income ───────────────────────────────────────────────────────────
 
   async addIncome(
     orgId: string,
@@ -164,6 +173,7 @@ export class EntryService {
 
     await this.ensurePeriod(orgId, taxYear, taxMonth);
 
+    // FIX: profile.defaultVatRate is a string (decimal column) — always parse
     const vatRate = dto.vatRate ?? Number(profile.defaultVatRate);
     // If excluded from VAT, record 0 VAT regardless of the rate setting
     const effectiveVatRate = dto.excludeFromVat ? 0 : vatRate;
@@ -174,16 +184,22 @@ export class EntryService {
 
     const entry = this.entryRepo.create({
       orgId,
-      date,
+      // FIX: store as ISO date string — matches entity `date: string` type.
+      // TypeORM accepts a Date object here and serialises it correctly, but
+      // we cast so the return value from .save() has the right TS type.
+      date: date.toISOString().split('T')[0] as unknown as string,
       taxYear,
       taxMonth,
       entryType: EntryType.INCOME,
       category: dto.category,
       description: dto.description ?? `Sales – ${dto.date}`,
-      grossAmount: dto.grossAmount,
-      vatRate: effectiveVatRate,
-      vatAmount,
-      netAmount,
+      // Money fields: TypeORM coerces numbers to the decimal string on write,
+      // and the DB returns strings on read. We store numbers going in
+      // (TypeORM handles it) and get strings coming out.
+      grossAmount: dto.grossAmount as unknown as string,
+      vatRate: effectiveVatRate as unknown as string,
+      vatAmount: vatAmount as unknown as string,
+      netAmount: netAmount as unknown as string,
       excludeFromVat: dto.excludeFromVat ?? false,
       sourceType: SourceType.MANUAL,
       counterpartyName: dto.counterpartyName,
@@ -198,50 +214,8 @@ export class EntryService {
     await this.recalculatePeriod(orgId, taxYear, taxMonth);
     return saved;
   }
-  // async addIncome(
-  //   orgId: string,
-  //   dto: AddIncomeDto,
-  //   createdByUserId?: string,
-  // ): Promise<BookkeepingEntry> {
-  //   const profile = await this.getProfile(orgId);
-  //   const date = new Date(dto.date);
-  //   const { taxYear, taxMonth } = periodFromDate(date);
 
-  //   await this.ensurePeriod(orgId, taxYear, taxMonth);
-
-  //   const vatRate = dto.vatRate ?? Number(profile.defaultVatRate);
-  //   const { vatAmount, netAmount } = splitVat(dto.grossAmount, vatRate);
-
-  //   const entry = this.entryRepo.create({
-  //     orgId,
-  //     date,
-  //     taxYear,
-  //     taxMonth,
-  //     entryType: EntryType.INCOME,
-  //     category: dto.category,
-  //     description: dto.description ?? `Sales – ${dto.date}`,
-  //     grossAmount: dto.grossAmount,
-  //     vatRate,
-  //     vatAmount,
-  //     netAmount,
-  //     sourceType: SourceType.MANUAL,
-  //     counterpartyName: dto.counterpartyName,
-  //     counterpartyVatNumber: dto.counterpartyVatNumber,
-  //     invoiceNumber: dto.invoiceNumber,
-  //     notes: dto.notes,
-  //     status: EntryStatus.CONFIRMED,
-  //     createdByUserId,
-  //   });
-
-  //   const saved = await this.entryRepo.save(entry);
-  //   await this.recalculatePeriod(orgId, taxYear, taxMonth);
-  //   return saved;
-  // }
-
-  // ─── Add expense ─────────────────────────────────────────────────────────
-  // Restaurant: supplier invoice for meat/veg
-  // Freelancer: equipment, software, transport
-  // Ecommerce: packaging, returns shipping
+  // ─── Add expense ──────────────────────────────────────────────────────────
 
   async addExpense(
     orgId: string,
@@ -259,17 +233,17 @@ export class EntryService {
 
     const entry = this.entryRepo.create({
       orgId,
-      date,
+      date: date.toISOString().split('T')[0] as unknown as string,
       taxYear,
       taxMonth,
       entryType: EntryType.EXPENSE,
       category: dto.category,
       description:
         dto.description ?? `Expense – ${dto.counterpartyName ?? dto.date}`,
-      grossAmount: dto.grossAmount,
-      vatRate,
-      vatAmount,
-      netAmount,
+      grossAmount: dto.grossAmount as unknown as string,
+      vatRate: vatRate as unknown as string,
+      vatAmount: vatAmount as unknown as string,
+      netAmount: netAmount as unknown as string,
       sourceType: dto.receiptImageUrl
         ? SourceType.RECEIPT_SCAN
         : SourceType.MANUAL,
@@ -286,53 +260,8 @@ export class EntryService {
     await this.recalculatePeriod(orgId, taxYear, taxMonth);
     return saved;
   }
-  // async addExpense(
-  //   orgId: string,
-  //   dto: AddExpenseDto,
-  //   createdByUserId?: string,
-  // ): Promise<BookkeepingEntry> {
-  //   await this.getProfile(orgId);
-  //   const date = new Date(dto.date);
-  //   const { taxYear, taxMonth } = periodFromDate(date);
 
-  //   await this.ensurePeriod(orgId, taxYear, taxMonth);
-
-  //   const vatRate = dto.vatRate ?? 0; // Assume no deductible VAT unless specified
-  //   const { vatAmount, netAmount } = splitVat(dto.grossAmount, vatRate);
-
-  //   const entry = this.entryRepo.create({
-  //     orgId,
-  //     date,
-  //     taxYear,
-  //     taxMonth,
-  //     entryType: EntryType.EXPENSE,
-  //     category: dto.category,
-  //     description:
-  //       dto.description ?? `Expense – ${dto.counterpartyName ?? dto.date}`,
-  //     grossAmount: dto.grossAmount,
-  //     vatRate,
-  //     vatAmount,
-  //     netAmount,
-  //     sourceType: dto.receiptImageUrl
-  //       ? SourceType.RECEIPT_SCAN
-  //       : SourceType.MANUAL,
-  //     receiptImageUrl: dto.receiptImageUrl,
-  //     counterpartyName: dto.counterpartyName,
-  //     counterpartyVatNumber: dto.counterpartyVatNumber,
-  //     invoiceNumber: dto.invoiceNumber,
-  //     notes: dto.notes,
-  //     status: EntryStatus.CONFIRMED,
-  //     createdByUserId,
-  //   });
-
-  //   const saved = await this.entryRepo.save(entry);
-  //   await this.recalculatePeriod(orgId, taxYear, taxMonth);
-  //   return saved;
-  // }
-
-  // ─── Add salary ───────────────────────────────────────────────────────────
-  // Single employee salary payment.
-  // All tax deductions computed here — owner never enters tax amounts manually.
+  // ─── Attach receipt proof to an expense ──────────────────────────────────
 
   async attachProof(
     orgId: string,
@@ -356,19 +285,12 @@ export class EntryService {
   // ─── Add third party payout (Wolt / Bolt Food etc.) ──────────────────────
   //
   // Creates TWO entries:
-  //   1. INCOME: SALES_THIRD_PARTY — full gross order value (what customers paid)
-  //   2. EXPENSE: PLATFORM_COMMISSION — commission deducted by platform
+  //   1. INCOME  — SALES_THIRD_PARTY   — full gross order value
+  //   2. EXPENSE — PLATFORM_COMMISSION — commission deducted by platform
   //
-  // Tax logic:
-  //   - Income entry: full gross is taxable (VAT applies if registered)
-  //   - Commission entry: 0% VAT — reverse charge service from foreign company
-  //     (Wolt OÜ / Bolt Operations OÜ are Estonian but commission billing is
-  //      typically handled through their international entities — conservatively
-  //      set to 0% VAT; the user can override if they have a local VAT invoice)
-  //
-  // The user either provides:
-  //   a) payoutAmount  → system back-calculates gross = payout / (1 - rate)
-  //   b) grossOrderValue → system forward-calculates commission = gross * rate
+  // VAT logic:
+  //   Income:     VAT applies (platform sales are taxable)
+  //   Commission: 0% VAT — reverse charge (B2B cross-border service)
 
   async addThirdPartyPayout(
     orgId: string,
@@ -381,7 +303,6 @@ export class EntryService {
 
     await this.ensurePeriod(orgId, taxYear, taxMonth);
 
-    // Resolve commission rate
     const commissionRate =
       dto.commissionRate ?? PLATFORM_COMMISSION_RATES[dto.platform];
 
@@ -391,18 +312,15 @@ export class EntryService {
       );
     }
 
-    // Resolve gross and payout
     let grossOrderValue: number;
     let payoutAmount: number;
     let commissionAmount: number;
 
     if (dto.grossOrderValue) {
-      // User has the platform report — most accurate
       grossOrderValue = dto.grossOrderValue;
       commissionAmount = +(grossOrderValue * commissionRate).toFixed(2);
       payoutAmount = +(grossOrderValue - commissionAmount).toFixed(2);
     } else if (dto.payoutAmount) {
-      // User only has the bank payout — back-calculate
       payoutAmount = dto.payoutAmount;
       grossOrderValue = +(payoutAmount / (1 - commissionRate)).toFixed(2);
       commissionAmount = +(grossOrderValue - payoutAmount).toFixed(2);
@@ -412,8 +330,9 @@ export class EntryService {
       );
     }
 
-    const periodLabel = dto.periodLabel ?? `${dto.date}`;
+    const periodLabel = dto.periodLabel ?? dto.date;
     const platformLabel = dto.platform.replace('_', ' ');
+    const dateStr = date.toISOString().split('T')[0] as unknown as string;
 
     const vatRate = dto.vatRate ?? Number(profile.defaultVatRate);
     const { vatAmount, netAmount } = splitVat(grossOrderValue, vatRate);
@@ -422,21 +341,21 @@ export class EntryService {
     const incomeEntry = await this.entryRepo.save(
       this.entryRepo.create({
         orgId,
-        date,
+        date: dateStr,
         taxYear,
         taxMonth,
         entryType: EntryType.INCOME,
         category: EntryCategory.SALES_THIRD_PARTY,
         description: `${platformLabel} sales – ${periodLabel}`,
-        grossAmount: grossOrderValue,
-        vatRate,
-        vatAmount,
-        netAmount,
-        excludeFromVat: false, // Platform sales ARE VAT-taxable
+        grossAmount: grossOrderValue as unknown as string,
+        vatRate: vatRate as unknown as string,
+        vatAmount: vatAmount as unknown as string,
+        netAmount: netAmount as unknown as string,
+        excludeFromVat: false,
         thirdPartyPlatform: dto.platform,
-        platformCommissionRate: commissionRate,
-        platformCommissionAmount: commissionAmount,
-        platformPayoutAmount: payoutAmount,
+        platformCommissionRate: commissionRate as unknown as string,
+        platformCommissionAmount: commissionAmount as unknown as string,
+        platformPayoutAmount: payoutAmount as unknown as string,
         sourceType: SourceType.MANUAL,
         invoiceNumber: dto.settlementReference,
         counterpartyName: platformLabel,
@@ -454,25 +373,23 @@ export class EntryService {
     );
 
     // ── Entry 2: Expense (platform commission — deductible) ───────────────
-    // Commission is a deductible business expense.
-    // VAT rate = 0% (reverse charge — foreign B2B service).
     const commissionEntry = await this.entryRepo.save(
       this.entryRepo.create({
         orgId,
-        date,
+        date: dateStr,
         taxYear,
         taxMonth,
         entryType: EntryType.EXPENSE,
         category: EntryCategory.PLATFORM_COMMISSION,
         description: `${platformLabel} commission – ${periodLabel}`,
-        grossAmount: commissionAmount,
-        vatRate: 0, // Reverse charge / no local VAT
-        vatAmount: 0,
-        netAmount: commissionAmount,
+        grossAmount: commissionAmount as unknown as string,
+        vatRate: '0' as unknown as string,
+        vatAmount: '0' as unknown as string,
+        netAmount: commissionAmount as unknown as string,
         thirdPartyPlatform: dto.platform,
-        platformCommissionRate: commissionRate,
-        platformCommissionAmount: commissionAmount,
-        platformPayoutAmount: payoutAmount,
+        platformCommissionRate: commissionRate as unknown as string,
+        platformCommissionAmount: commissionAmount as unknown as string,
+        platformPayoutAmount: payoutAmount as unknown as string,
         sourceType: SourceType.MANUAL,
         invoiceNumber: dto.settlementReference,
         counterpartyName: platformLabel,
@@ -494,6 +411,9 @@ export class EntryService {
     };
   }
 
+  // ─── Add salary ───────────────────────────────────────────────────────────
+  // All tax deductions computed here — owner never enters tax amounts manually.
+
   async addSalary(
     orgId: string,
     dto: AddSalaryDto,
@@ -504,8 +424,9 @@ export class EntryService {
     const employee = await this.employeeRepo.findOne({
       where: { id: dto.employeeId, orgId },
     });
-    if (!employee)
+    if (!employee) {
       throw new NotFoundException(`Employee ${dto.employeeId} not found`);
+    }
 
     const date = new Date(dto.date);
     const { taxYear, taxMonth } = periodFromDate(date);
@@ -521,6 +442,7 @@ export class EntryService {
           `Employee "${employee.fullName}" is hourly — provide hoursWorked`,
         );
       }
+      // FIX: employee.hourlyRate is string | null — always parse
       effectiveHourlyRate = dto.hourlyRate ?? Number(employee.hourlyRate ?? 0);
       if (!effectiveHourlyRate || effectiveHourlyRate <= 0) {
         throw new BadRequestException(
@@ -563,9 +485,35 @@ export class EntryService {
       .filter(Boolean)
       .join(' | ');
 
+    // FIX: use proper ReceiptParsedData shape instead of `as any`.
+    // We repurpose lineItems to carry the payroll breakdown for the TSD
+    // calculator — confidence:1 signals it was system-computed, not OCR.
+    const payrollBreakdown: ReceiptParsedData = {
+      merchantName: employee.fullName,
+      confidence: 1,
+      lineItems: [
+        ...(employee.salaryType === SalaryType.HOURLY
+          ? [
+              {
+                description: `${hoursWorked}h × €${effectiveHourlyRate}/h`,
+                total: gross,
+              },
+            ]
+          : []),
+        { description: 'Gross salary', total: gross },
+        { description: 'Income tax (22%)', total: -incomeTax },
+        { description: 'Unemployment employee (1.6%)', total: -unempEmp },
+        { description: 'Pension II (2%)', total: -pensionII },
+        { description: 'Net take-home', total: netSalary },
+        { description: 'Social tax employer (33%)', total: socialTax },
+        { description: 'Unemployment employer (0.8%)', total: unempEmpl },
+        { description: 'Total employer cost', total: employerCost },
+      ],
+    };
+
     const entry = this.entryRepo.create({
       orgId,
-      date,
+      date: date.toISOString().split('T')[0] as unknown as string,
       taxYear,
       taxMonth,
       entryType: EntryType.SALARY,
@@ -573,37 +521,16 @@ export class EntryService {
         ? EntryCategory.BOARD_FEE
         : EntryCategory.STAFF_SALARY,
       description: `Salary – ${employee.fullName}`,
-      grossAmount: gross,
-      vatRate: 0,
-      vatAmount: 0,
-      netAmount: netSalary,
+      grossAmount: gross as unknown as string,
+      vatRate: '0' as unknown as string,
+      vatAmount: '0' as unknown as string,
+      netAmount: netSalary as unknown as string,
       sourceType: SourceType.MANUAL,
       counterpartyName: employee.fullName,
       notes: noteParts,
       status: EntryStatus.CONFIRMED,
       createdByUserId,
-      receiptParsedData: {
-        merchantName: employee.fullName,
-        confidence: 1,
-        lineItems: [
-          ...(employee.salaryType === SalaryType.HOURLY
-            ? [
-                {
-                  description: `${hoursWorked}h × €${effectiveHourlyRate}/h`,
-                  total: gross,
-                },
-              ]
-            : []),
-          { description: 'Gross salary', total: gross },
-          { description: 'Income tax (22%)', total: -incomeTax },
-          { description: 'Unemployment (1.6%)', total: -unempEmp },
-          { description: 'Pension II (2%)', total: -pensionII },
-          { description: 'Net take-home', total: netSalary },
-          { description: 'Social tax (33%)', total: socialTax },
-          { description: 'Unemployment emp (0.8%)', total: unempEmpl },
-          { description: 'Total employer cost', total: employerCost },
-        ],
-      } as any,
+      receiptParsedData: payrollBreakdown,
     });
 
     const saved = await this.entryRepo.save(entry);
@@ -611,85 +538,8 @@ export class EntryService {
     return saved;
   }
 
-  // async addSalary(
-  //   orgId: string,
-  //   dto: AddSalaryDto,
-  //   createdByUserId?: string,
-  // ): Promise<BookkeepingEntry> {
-  //   await this.getProfile(orgId);
-
-  //   const employee = await this.employeeRepo.findOne({
-  //     where: { id: dto.employeeId, orgId },
-  //   });
-  //   if (!employee) {
-  //     throw new NotFoundException(`Employee ${dto.employeeId} not found`);
-  //   }
-
-  //   const date = new Date(dto.date);
-  //   const { taxYear, taxMonth } = periodFromDate(date);
-  //   await this.ensurePeriod(orgId, taxYear, taxMonth);
-
-  //   const gross = dto.grossAmount;
-  //   const exemption = dto.basicExemption ?? calcBasicExemption(gross);
-  //   const pensionII = +(gross * PENSION_II).toFixed(2);
-  //   const unempEmp = +(gross * UNEMP_EMPLOYEE).toFixed(2);
-  //   const itBase = Math.max(0, +(gross - exemption - pensionII).toFixed(2));
-  //   const incomeTax = +(itBase * INCOME_TAX_RATE).toFixed(2);
-  //   const socialTax = +(gross * SOCIAL_TAX_RATE).toFixed(2);
-  //   const unempEmpl = +(gross * UNEMP_EMPLOYER).toFixed(2);
-  //   const netSalary = +(gross - incomeTax - unempEmp - pensionII).toFixed(2);
-
-  //   const entry = this.entryRepo.create({
-  //     orgId,
-  //     date,
-  //     taxYear,
-  //     taxMonth,
-  //     entryType: EntryType.SALARY,
-  //     category: employee.isBoardMember
-  //       ? EntryCategory.BOARD_FEE
-  //       : EntryCategory.STAFF_SALARY,
-  //     description: `Salary – ${employee.fullName}`,
-  //     grossAmount: gross,
-  //     vatRate: 0,
-  //     vatAmount: 0,
-  //     netAmount: netSalary,
-  //     sourceType: SourceType.MANUAL,
-  //     counterpartyName: employee.fullName,
-  //     notes: [
-  //       `Income tax: €${incomeTax}`,
-  //       `Social tax (employer): €${socialTax}`,
-  //       `Unemployment (emp): €${unempEmp}`,
-  //       `Pension II: €${pensionII}`,
-  //       `Exemption applied: €${exemption}`,
-  //       dto.bankReferenceNumber ? `Ref: ${dto.bankReferenceNumber}` : '',
-  //       dto.notes ?? '',
-  //     ]
-  //       .filter(Boolean)
-  //       .join(' | '),
-  //     status: EntryStatus.CONFIRMED,
-  //     createdByUserId,
-  //     // Store full breakdown for TSD generation
-  //     receiptParsedData: {
-  //       merchantName: employee.fullName,
-  //       confidence: 1,
-  //       lineItems: [
-  //         { description: 'Gross salary', total: gross },
-  //         { description: 'Income tax (22%)', total: -incomeTax },
-  //         { description: 'Unemployment (1.6%)', total: -unempEmp },
-  //         { description: 'Pension II (2%)', total: -pensionII },
-  //         { description: 'Net take-home', total: netSalary },
-  //         { description: 'Social tax (33%)', total: socialTax },
-  //         { description: 'Unemployment emp (0.8%)', total: unempEmpl },
-  //       ],
-  //     } as any,
-  //   });
-
-  //   const saved = await this.entryRepo.save(entry);
-  //   await this.recalculatePeriod(orgId, taxYear, taxMonth);
-  //   return saved;
-  // }
-
   // ─── Add daily sales ──────────────────────────────────────────────────────
+  // Single call from the restaurant / retail daily sales screen.
 
   async addDailySales(
     orgId: string,
@@ -697,6 +547,7 @@ export class EntryService {
     createdByUserId?: string,
   ): Promise<BookkeepingEntry[]> {
     const profile = await this.getProfile(orgId);
+    // FIX: profile.defaultVatRate is a string — parse before arithmetic
     const vatRate = dto.vatRate ?? Number(profile.defaultVatRate);
     const results: BookkeepingEntry[] = [];
 
@@ -719,7 +570,7 @@ export class EntryService {
       );
     }
 
-    // Card sales — always VAT-taxable (card payments are always traceable)
+    // Card sales — always VAT-taxable (traceable payment trail)
     if (dto.cardSales && dto.cardSales > 0) {
       results.push(
         await this.addIncome(
@@ -738,7 +589,7 @@ export class EntryService {
       );
     }
 
-    // Own webshop / online sales
+    // Own webshop / online channel sales
     if (dto.onlineSales && dto.onlineSales > 0) {
       results.push(
         await this.addIncome(
@@ -757,7 +608,7 @@ export class EntryService {
       );
     }
 
-    // Third party platform sales — creates income + commission expense per platform
+    // Third party platform payouts — creates income + commission expense per platform
     if (dto.thirdPartySales?.length) {
       for (const tp of dto.thirdPartySales) {
         const tpResult = await this.addThirdPartyPayout(
@@ -785,68 +636,7 @@ export class EntryService {
     return results;
   }
 
-  // ─── Daily sales batch (restaurant-optimised) ─────────────────────────────
-  // One call = end-of-day entry. Creates up to 3 entries (cash/card/online).
-  // This is the primary input method for restaurant owners.
-
-  // async addDailySales(
-  //   orgId: string,
-  //   dto: AddDailySalesDto,
-  //   createdByUserId?: string,
-  // ): Promise<BookkeepingEntry[]> {
-  //   const profile = await this.getProfile(orgId);
-  //   const vatRate = dto.vatRate ?? Number(profile.defaultVatRate);
-  //   const results: BookkeepingEntry[] = [];
-
-  //   const channels: Array<{
-  //     amount: number | undefined;
-  //     category: EntryCategory;
-  //     label: string;
-  //   }> = [
-  //     {
-  //       amount: dto.cashSales,
-  //       category: EntryCategory.SALES_CASH,
-  //       label: 'Cash sales',
-  //     },
-  //     {
-  //       amount: dto.cardSales,
-  //       category: EntryCategory.SALES_CARD,
-  //       label: 'Card sales',
-  //     },
-  //     {
-  //       amount: dto.onlineSales,
-  //       category: EntryCategory.SALES_ONLINE,
-  //       label: 'Online sales',
-  //     },
-  //   ];
-
-  //   for (const ch of channels) {
-  //     if (!ch.amount || ch.amount <= 0) continue;
-  //     const result = await this.addIncome(
-  //       orgId,
-  //       {
-  //         date: dto.date,
-  //         grossAmount: ch.amount,
-  //         category: ch.category,
-  //         description: `${ch.label} – ${dto.date}`,
-  //         vatRate,
-  //         notes: dto.notes,
-  //       },
-  //       createdByUserId,
-  //     );
-  //     results.push(result);
-  //   }
-
-  //   if (results.length === 0) {
-  //     throw new BadRequestException(
-  //       'At least one of cashSales, cardSales, or onlineSales must be > 0',
-  //     );
-  //   }
-
-  //   return results;
-  // }
-
-  // ─── Payroll preview ──────────────────────────────────────────────────────
+  // ─── Payroll preview (no DB write) ───────────────────────────────────────
 
   previewPayroll(
     gross: number,
@@ -857,8 +647,9 @@ export class EntryService {
   ): PayrollBreakdown {
     let resolvedGross = gross;
     if (salaryType === SalaryType.HOURLY) {
-      if (!hoursWorked || !hourlyRate)
+      if (!hoursWorked || !hourlyRate) {
         throw new BadRequestException('hoursWorked and hourlyRate required');
+      }
       resolvedGross = +(hoursWorked * hourlyRate).toFixed(2);
     }
     const exemption = overrideExemption ?? calcBasicExemption(resolvedGross);
@@ -905,7 +696,6 @@ export class EntryService {
 
   // ─── Auto-sync from commerce-os order ────────────────────────────────────
   // Called by orders.service when an order reaches PAID/DELIVERED status.
-  // Ecommerce owners get their sales in without touching anything.
 
   async syncFromOrder(
     orgId: string,
@@ -923,7 +713,7 @@ export class EntryService {
     const existing = await this.entryRepo.findOne({
       where: { orgId, sourceType: SourceType.ORDER_SYNC, sourceId: order.id },
     });
-    if (existing) return;
+    if (existing) return; // idempotent — skip if already synced
 
     const date = order.createdAt;
     const { taxYear, taxMonth } = periodFromDate(date);
@@ -936,16 +726,16 @@ export class EntryService {
     await this.entryRepo.save(
       this.entryRepo.create({
         orgId,
-        date,
+        date: date.toISOString().split('T')[0] as unknown as string,
         taxYear,
         taxMonth,
         entryType: EntryType.INCOME,
         category: EntryCategory.SALES_ONLINE,
         description: `Order #${String(order.id).slice(0, 8).toUpperCase()}`,
-        grossAmount: order.total,
-        vatRate,
-        vatAmount,
-        netAmount,
+        grossAmount: order.total as unknown as string,
+        vatRate: vatRate as unknown as string,
+        vatAmount: vatAmount as unknown as string,
+        netAmount: netAmount as unknown as string,
         excludeFromVat: false,
         sourceType: SourceType.ORDER_SYNC,
         sourceId: order.id,
@@ -956,66 +746,12 @@ export class EntryService {
     await this.recalculatePeriod(orgId, taxYear, taxMonth);
   }
 
-  // async syncFromOrder(
-  //   orgId: string,
-  //   order: {
-  //     id: string;
-  //     total: number;
-  //     subtotal: number;
-  //     deliveryFee: number;
-  //     paidAmount: number;
-  //     status: string;
-  //     paymentStatus: string;
-  //     createdAt: Date;
-  //   },
-  // ): Promise<void> {
-  //   // Avoid double-sync
-  //   const existing = await this.entryRepo.findOne({
-  //     where: {
-  //       orgId,
-  //       sourceType: SourceType.ORDER_SYNC,
-  //       sourceId: order.id,
-  //     },
-  //   });
-  //   if (existing) return;
-
-  //   const date = order.createdAt;
-  //   const { taxYear, taxMonth } = periodFromDate(date);
-
-  //   await this.ensurePeriod(orgId, taxYear, taxMonth);
-
-  //   const profile = await this.getProfile(orgId);
-  //   const vatRate = Number(profile.defaultVatRate);
-  //   const { vatAmount, netAmount } = splitVat(order.total, vatRate);
-
-  //   const entry = this.entryRepo.create({
-  //     orgId,
-  //     date,
-  //     taxYear,
-  //     taxMonth,
-  //     entryType: EntryType.INCOME,
-  //     category: EntryCategory.SALES_ONLINE,
-  //     description: `Order #${String(order.id).slice(0, 8).toUpperCase()}`,
-  //     grossAmount: order.total,
-  //     vatRate,
-  //     vatAmount,
-  //     netAmount,
-  //     sourceType: SourceType.ORDER_SYNC,
-  //     sourceId: order.id,
-  //     status: EntryStatus.CONFIRMED,
-  //   });
-
-  //   await this.entryRepo.save(entry);
-  //   await this.recalculatePeriod(orgId, taxYear, taxMonth);
-
-  //   this.logger.log(
-  //     `Synced order ${order.id} → bookkeeping entry for org ${orgId}`,
-  //   );
-  // }
-
   // ─── List entries ─────────────────────────────────────────────────────────
 
-  async listEntries(orgId: string, dto: ListEntriesDto) {
+  async listEntries(
+    orgId: string,
+    dto: ListEntriesDto,
+  ): Promise<{ items: BookkeepingEntry[]; total: number }> {
     const qb = this.entryRepo
       .createQueryBuilder('e')
       .where('e.orgId = :orgId', { orgId })
@@ -1043,43 +779,10 @@ export class EntryService {
     await this.recalculatePeriod(orgId, entry.taxYear, entry.taxMonth);
   }
 
-  // async listEntries(orgId: string, dto: ListEntriesDto) {
-  //   const qb = this.entryRepo
-  //     .createQueryBuilder('e')
-  //     .where('e.orgId = :orgId', { orgId })
-  //     .andWhere('e.status != :excluded', { excluded: EntryStatus.EXCLUDED })
-  //     .orderBy('e.date', 'DESC')
-  //     .addOrderBy('e.createdAt', 'DESC')
-  //     .take(dto.limit ?? 50)
-  //     .skip(dto.offset ?? 0);
-
-  //   if (dto.year) qb.andWhere('e.taxYear = :year', { year: dto.year });
-  //   if (dto.month) qb.andWhere('e.taxMonth = :month', { month: dto.month });
-  //   if (dto.entryType)
-  //     qb.andWhere('e.entryType = :type', { type: dto.entryType });
-  //   if (dto.category) qb.andWhere('e.category = :cat', { cat: dto.category });
-
-  //   const [items, total] = await qb.getManyAndCount();
-  //   return { items, total };
-  // }
-
-  // ─── Delete / exclude entry ───────────────────────────────────────────────
-
-  // async excludeEntry(id: string, orgId: string): Promise<void> {
-  //   const entry = await this.entryRepo.findOne({
-  //     where: { id, orgId },
-  //   });
-  //   if (!entry) throw new NotFoundException('Entry not found');
-  //   entry.status = EntryStatus.EXCLUDED;
-  //   await this.entryRepo.save(entry);
-  //   await this.recalculatePeriod(orgId, entry.taxYear, entry.taxMonth);
-  // }
-
   // ─── Recalculate period totals ────────────────────────────────────────────
-  // Called after every write. Keeps the MonthlyTaxPeriod summary current.
-
-  // KEY CHANGE: VAT totals only count entries where excludeFromVat = false.
-  // Income totals still include ALL confirmed income (including cash-excluded).
+  // Called after every write. Keeps MonthlyTaxPeriod summary current.
+  // VAT totals only count entries where excludeFromVat = false.
+  // Income totals include ALL confirmed income (including cash-excluded entries).
 
   async recalculatePeriod(
     orgId: string,
@@ -1110,6 +813,7 @@ export class EntryService {
       totalThirdPartyPayout = 0;
 
     for (const e of entries) {
+      // FIX: all decimal columns come back as strings — always Number() them
       const gross = Number(e.grossAmount);
       const net = Number(e.netAmount);
       const vat = Number(e.vatAmount);
@@ -1117,17 +821,17 @@ export class EntryService {
       if (e.entryType === EntryType.INCOME) {
         totalIncomeGross += gross;
         totalIncomeNet += net;
-        // Only add to VAT output if NOT excluded
         if (!e.excludeFromVat) vatOutputTotal += vat;
 
         if (e.category === EntryCategory.SALES_THIRD_PARTY) {
           totalThirdPartyGross += gross;
+          // platformPayoutAmount is string | null — guard before Number()
           totalThirdPartyPayout += Number(e.platformPayoutAmount ?? 0);
         }
       } else if (e.entryType === EntryType.EXPENSE) {
         totalExpenseGross += gross;
         totalExpenseNet += net;
-        vatInputTotal += vat; // All expense VAT is deductible input
+        vatInputTotal += vat;
 
         if (e.category === EntryCategory.PLATFORM_COMMISSION) {
           totalPlatformCommission += gross;
@@ -1137,18 +841,21 @@ export class EntryService {
       }
     }
 
+    // Extract payroll tax figures from the structured lineItems we store in
+    // receiptParsedData — avoids a separate payroll table for now.
     const salaryEntries = entries.filter(
       (e) => e.entryType === EntryType.SALARY,
     );
     let totalIncomeTaxWithheld = 0,
       totalSocialTax = 0,
       totalEmployerCost = 0;
+
     for (const e of salaryEntries) {
-      const items = (e.receiptParsedData as any)?.lineItems ?? [];
+      const items = e.receiptParsedData?.lineItems ?? [];
       for (const item of items) {
         if (item.description.startsWith('Income tax'))
           totalIncomeTaxWithheld += Math.abs(item.total);
-        if (item.description.startsWith('Social tax'))
+        if (item.description.startsWith('Social tax employer'))
           totalSocialTax += item.total;
         if (item.description.startsWith('Total employer'))
           totalEmployerCost += item.total;
@@ -1174,83 +881,4 @@ export class EntryService {
 
     return this.periodRepo.save(period);
   }
-  // async recalculatePeriod(
-  //   orgId: string,
-  //   year: number,
-  //   month: number,
-  // ): Promise<MonthlyTaxPeriod> {
-  //   const period = await this.ensurePeriod(orgId, year, month);
-  //   if (period.status === PeriodStatus.LOCKED) return period;
-
-  //   const entries = await this.entryRepo.find({
-  //     where: {
-  //       orgId,
-  //       taxYear: year,
-  //       taxMonth: month,
-  //       status: EntryStatus.CONFIRMED,
-  //     },
-  //   });
-
-  //   let totalIncomeGross = 0,
-  //     totalIncomeNet = 0;
-  //   let totalExpenseGross = 0,
-  //     totalExpenseNet = 0;
-  //   let totalGrossSalary = 0;
-  //   let vatOutputTotal = 0,
-  //     vatInputTotal = 0;
-
-  //   for (const e of entries) {
-  //     const gross = Number(e.grossAmount);
-  //     const net = Number(e.netAmount);
-  //     const vat = Number(e.vatAmount);
-
-  //     if (e.entryType === EntryType.INCOME) {
-  //       totalIncomeGross += gross;
-  //       totalIncomeNet += net;
-  //       vatOutputTotal += vat;
-  //     } else if (e.entryType === EntryType.EXPENSE) {
-  //       totalExpenseGross += gross;
-  //       totalExpenseNet += net;
-  //       vatInputTotal += vat;
-  //     } else if (e.entryType === EntryType.SALARY) {
-  //       totalGrossSalary += gross;
-  //     }
-  //   }
-
-  //   // Sum salary-related taxes from stored breakdown
-  //   const salaryEntries = entries.filter(
-  //     (e) => e.entryType === EntryType.SALARY,
-  //   );
-  //   let totalIncomeTaxWithheld = 0,
-  //     totalSocialTax = 0,
-  //     totalEmployerCost = 0;
-
-  //   for (const e of salaryEntries) {
-  //     const items = (e.receiptParsedData as any)?.lineItems ?? [];
-  //     const gross = Number(e.grossAmount);
-  //     for (const item of items) {
-  //       if (item.description.startsWith('Income tax'))
-  //         totalIncomeTaxWithheld += Math.abs(item.total);
-  //       if (item.description.startsWith('Social tax'))
-  //         totalSocialTax += item.total;
-  //     }
-  //     totalEmployerCost += gross + gross * (SOCIAL_TAX_RATE + UNEMP_EMPLOYER);
-  //   }
-
-  //   Object.assign(period, {
-  //     totalIncomeGross: +totalIncomeGross.toFixed(2),
-  //     totalIncomeNet: +totalIncomeNet.toFixed(2),
-  //     totalExpenseGross: +totalExpenseGross.toFixed(2),
-  //     totalExpenseNet: +totalExpenseNet.toFixed(2),
-  //     totalGrossSalary: +totalGrossSalary.toFixed(2),
-  //     totalIncomeTaxWithheld: +totalIncomeTaxWithheld.toFixed(2),
-  //     totalSocialTax: +totalSocialTax.toFixed(2),
-  //     totalEmployerCost: +totalEmployerCost.toFixed(2),
-  //     vatOutputTotal: +vatOutputTotal.toFixed(2),
-  //     vatInputTotal: +vatInputTotal.toFixed(2),
-  //     vatPayable: +(vatOutputTotal - vatInputTotal).toFixed(2),
-  //   });
-
-  //   return this.periodRepo.save(period);
-  // }
 }

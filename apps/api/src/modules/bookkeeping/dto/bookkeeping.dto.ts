@@ -57,6 +57,8 @@ export class SetupTaxProfileDto {
   @IsOptional()
   @IsBoolean()
   isSoleTraderFie?: boolean;
+
+  paysAdvanceIncomeTax?: boolean; // For sole traders: do they pay advance income tax based on the previous year's profit? (Default: false)
 }
 
 // ─── Income ───────────────────────────────────────────────────────────────────

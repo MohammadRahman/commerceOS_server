@@ -19,6 +19,12 @@ import { ESTONIA_TAX_QUEUE_NAMES } from '../estonia-tax/estonia-tax.constants';
 import { AiModule } from '../ai/ai.module';
 import { OrganizationEntity } from '../tenancy/entities/organization.entity';
 import { UploadModule } from '@app/common/upload';
+import { DailyTimelineService } from './services/daily-timeline.service';
+import { SupplierService } from './services/supplier.service';
+import { OpenBankingService } from './services/open-banking.service';
+import { BankStatementService } from './services/bank-statement.service';
+import { InboxParserService } from './services/inbox-parser.service';
+import { AutomationController } from './automation.controller';
 
 @Module({
   imports: [
@@ -37,17 +43,29 @@ import { UploadModule } from '@app/common/upload';
     ),
     ScheduleModule.forRoot(),
   ],
-  controllers: [BookkeepingController],
+  controllers: [BookkeepingController, AutomationController],
   providers: [
     EntryService,
     ReceiptScannerService,
     MonthEndService,
     TaxProfileService,
+
+    // new automation services
+    InboxParserService,
+    BankStatementService,
+    OpenBankingService,
+    SupplierService,
+    DailyTimelineService,
   ],
   exports: [
     EntryService, // Used by orders.service for order sync
     MonthEndService,
     TaxProfileService,
+    InboxParserService,
+    BankStatementService,
+    OpenBankingService,
+    SupplierService,
+    DailyTimelineService,
   ],
 })
 export class BookkeepingModule {}
