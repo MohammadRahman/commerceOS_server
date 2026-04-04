@@ -29,12 +29,11 @@ import { HttpModule } from '@nestjs/axios';
 import { Supplier } from './entities/supplier.entity';
 import { AutomationConfig } from './entities/automation-config.entity';
 import { AutomationLog } from './entities/automation-log.entity';
-import { BankStatementParserService } from './services/bank-statement-parser.service';
 
 @Module({
   imports: [
     HttpModule,
-    AiModule,
+    AiModule, // AiModule exports AiService + re-exports BankStatementParserModule
     UploadModule,
     TypeOrmModule.forFeature([
       BookkeepingEntry,
@@ -58,17 +57,15 @@ import { BankStatementParserService } from './services/bank-statement-parser.ser
     ReceiptScannerService,
     MonthEndService,
     TaxProfileService,
-
-    // new automation services
     InboxParserService,
     BankStatementService,
     OpenBankingService,
     SupplierService,
     DailyTimelineService,
-    BankStatementParserService,
+    // BankStatementParserService removed — injected via AiModule → BankStatementParserModule
   ],
   exports: [
-    EntryService, // Used by orders.service for order sync
+    EntryService,
     MonthEndService,
     TaxProfileService,
     InboxParserService,
@@ -76,7 +73,8 @@ import { BankStatementParserService } from './services/bank-statement-parser.ser
     OpenBankingService,
     SupplierService,
     DailyTimelineService,
-    BankStatementParserService,
+    // BankStatementParserService removed from exports too — callers that need it
+    // should import BankStatementParserModule directly (it's a zero-dep module)
   ],
 })
 export class BookkeepingModule {}
