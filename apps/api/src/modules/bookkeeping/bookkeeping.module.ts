@@ -29,6 +29,7 @@ import { HttpModule } from '@nestjs/axios';
 import { Supplier } from './entities/supplier.entity';
 import { AutomationConfig } from './entities/automation-config.entity';
 import { AutomationLog } from './entities/automation-log.entity';
+import { BankStatementParserService } from './services/bank-statement-parser.service';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { AutomationLog } from './entities/automation-log.entity';
     OpenBankingService,
     SupplierService,
     DailyTimelineService,
+    BankStatementParserService,
   ],
   exports: [
     EntryService, // Used by orders.service for order sync
@@ -74,6 +76,7 @@ import { AutomationLog } from './entities/automation-log.entity';
     OpenBankingService,
     SupplierService,
     DailyTimelineService,
+    BankStatementParserService,
   ],
 })
 export class BookkeepingModule {}
