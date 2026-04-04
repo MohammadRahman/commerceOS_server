@@ -13,6 +13,7 @@ import { BankStatementParserModule } from '../bookkeeping/bank-statement-parser.
 
 @Module({
   imports: [
+    BankStatementParserModule,
     BookkeepingModule,
     ConfigModule,
     HttpModule,
