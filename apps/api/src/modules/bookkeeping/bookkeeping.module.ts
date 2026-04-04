@@ -25,9 +25,14 @@ import { OpenBankingService } from './services/open-banking.service';
 import { BankStatementService } from './services/bank-statement.service';
 import { InboxParserService } from './services/inbox-parser.service';
 import { AutomationController } from './automation.controller';
+import { HttpModule } from '@nestjs/axios';
+import { Supplier } from './entities/supplier.entity';
+import { AutomationConfig } from './entities/automation-config.entity';
+import { AutomationLog } from './entities/automation-log.entity';
 
 @Module({
   imports: [
+    HttpModule,
     AiModule,
     UploadModule,
     TypeOrmModule.forFeature([
@@ -36,6 +41,9 @@ import { AutomationController } from './automation.controller';
       TaxProfile,
       EmployeeRecord,
       OrganizationEntity,
+      AutomationLog,
+      AutomationConfig,
+      Supplier,
     ]),
     BullModule.registerQueue(
       { name: ESTONIA_TAX_QUEUE_NAMES.VAT_FILING },
