@@ -2,13 +2,11 @@ import {
   MigrationInterface,
   QueryRunner,
   Table,
-  TableIndex,
   TableForeignKey,
 } from 'typeorm';
 
 export class CreateAutomationConfigsTable1775261319611 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // set_updated_at() already exists from CreateSu dsapplier — CREATE OR REPLACE is safe
     await queryRunner.query(`
       CREATE OR REPLACE FUNCTION set_updated_at()
       RETURNS TRIGGER AS $$
@@ -109,19 +107,14 @@ export class CreateAutomationConfigsTable1775261319611 implements MigrationInter
     );
 
     await queryRunner.query(`
-        DROP TRIGGER IF EXISTS trg_automation_configs_updated_at ON automation_configs;
+      DROP TRIGGER IF EXISTS trg_automation_configs_updated_at ON automation_configs;
       CREATE TRIGGER trg_automation_configs_updated_at
       BEFORE UPDATE ON automation_configs
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
     `);
 
-    await queryRunner.createIndex(
-      'automation_configs',
-      new TableIndex({
-        name: 'idx_automation_configs_org_id',
-        columnNames: ['org_id'],
-        isUnique: true,
-      }),
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "idx_automation_configs_org_id" ON "automation_configs" ("org_id")`,
     );
 
     await queryRunner.createForeignKey(
@@ -148,11 +141,10 @@ export class CreateAutomationConfigsTable1775261319611 implements MigrationInter
       }
     }
 
-    await queryRunner
-      .dropIndex('automation_configs', 'idx_automation_configs_org_id')
-      .catch(() => {});
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_configs_org_id"`,
+    );
     await queryRunner.dropTable('automation_configs');
-
     await queryRunner.query(
       `DROP TYPE IF EXISTS "automation_configs_email_provider_enum"`,
     );

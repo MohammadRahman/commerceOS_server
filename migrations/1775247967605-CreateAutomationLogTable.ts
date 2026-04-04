@@ -2,14 +2,11 @@ import {
   MigrationInterface,
   QueryRunner,
   Table,
-  TableIndex,
   TableForeignKey,
 } from 'typeorm';
 
 export class CreateAutomationLogTable1775247967605 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // set_updated_at() already created by CreateSupplier (runs before this)
-    // Using CREATE OR REPLACE as a safety net asd
     await queryRunner.query(`
       CREATE OR REPLACE FUNCTION set_updated_at()
       RETURNS TRIGGER AS $$
@@ -89,64 +86,29 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
     `);
 
-    await queryRunner.createIndex(
-      'automation_logs',
-      new TableIndex({
-        name: 'idx_automation_logs_org_id_source_type',
-        columnNames: ['org_id', 'source_type'],
-      }),
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_automation_logs_org_id_source_type" ON "automation_logs" ("org_id", "source_type")`,
     );
-
-    await queryRunner.createIndex(
-      'automation_logs',
-      new TableIndex({
-        name: 'idx_automation_logs_org_id_status',
-        columnNames: ['org_id', 'status'],
-      }),
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_automation_logs_org_id_status" ON "automation_logs" ("org_id", "status")`,
     );
-
-    await queryRunner.createIndex(
-      'automation_logs',
-      new TableIndex({
-        name: 'idx_automation_logs_external_ref',
-        columnNames: ['external_ref'],
-      }),
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_automation_logs_external_ref" ON "automation_logs" ("external_ref")`,
     );
-
-    await queryRunner.createIndex(
-      'automation_logs',
-      new TableIndex({
-        name: 'idx_automation_logs_entry_id',
-        columnNames: ['entry_id'],
-      }),
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_automation_logs_entry_id" ON "automation_logs" ("entry_id")`,
     );
-
-    await queryRunner.createIndex(
-      'automation_logs',
-      new TableIndex({
-        name: 'idx_automation_logs_supplier_id',
-        columnNames: ['supplier_id'],
-      }),
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_automation_logs_supplier_id" ON "automation_logs" ("supplier_id")`,
     );
-
-    await queryRunner.createIndex(
-      'automation_logs',
-      new TableIndex({
-        name: 'idx_automation_logs_created_at',
-        columnNames: ['created_at'],
-      }),
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_automation_logs_created_at" ON "automation_logs" ("created_at")`,
     );
-
-    await queryRunner.createIndex(
-      'automation_logs',
-      new TableIndex({
-        name: 'idx_automation_logs_status_created',
-        columnNames: ['status', 'created_at'],
-      }),
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_automation_logs_status_created" ON "automation_logs" ("status", "created_at")`,
     );
-
     await queryRunner.query(`
-      CREATE INDEX "idx_automation_logs_pending_flush"
+      CREATE INDEX IF NOT EXISTS "idx_automation_logs_pending_flush"
       ON "automation_logs" ("status", "entry_id")
       WHERE status = 'confirmed' AND entry_id IS NULL
     `);
@@ -176,7 +138,6 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
       );
     }
 
-    // suppliers table exists — created by migration that ran before this one
     await queryRunner.createForeignKey(
       'automation_logs',
       new TableForeignKey({
@@ -218,27 +179,27 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
     await queryRunner.query(
       `DROP INDEX IF EXISTS "idx_automation_logs_pending_flush"`,
     );
-    await queryRunner
-      .dropIndex('automation_logs', 'idx_automation_logs_status_created')
-      .catch(() => {});
-    await queryRunner
-      .dropIndex('automation_logs', 'idx_automation_logs_created_at')
-      .catch(() => {});
-    await queryRunner
-      .dropIndex('automation_logs', 'idx_automation_logs_supplier_id')
-      .catch(() => {});
-    await queryRunner
-      .dropIndex('automation_logs', 'idx_automation_logs_entry_id')
-      .catch(() => {});
-    await queryRunner
-      .dropIndex('automation_logs', 'idx_automation_logs_external_ref')
-      .catch(() => {});
-    await queryRunner
-      .dropIndex('automation_logs', 'idx_automation_logs_org_id_status')
-      .catch(() => {});
-    await queryRunner
-      .dropIndex('automation_logs', 'idx_automation_logs_org_id_source_type')
-      .catch(() => {});
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_logs_status_created"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_logs_created_at"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_logs_supplier_id"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_logs_entry_id"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_logs_external_ref"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_logs_org_id_status"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_automation_logs_org_id_source_type"`,
+    );
 
     await queryRunner.dropTable('automation_logs');
   }
