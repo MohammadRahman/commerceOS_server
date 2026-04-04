@@ -83,6 +83,7 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
     );
 
     await queryRunner.query(`
+      DROP TRIGGER IF EXISTS trg_automation_logs_updated_at ON automation_logs;
       CREATE TRIGGER trg_automation_logs_updated_at
       BEFORE UPDATE ON automation_logs
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();

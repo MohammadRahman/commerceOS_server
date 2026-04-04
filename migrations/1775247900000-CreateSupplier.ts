@@ -103,6 +103,7 @@ export class CreateSupplier1775247900000 implements MigrationInterface {
     );
 
     await queryRunner.query(`
+      DROP TRIGGER IF EXISTS trg_suppliers_updated_at ON suppliers;
       CREATE TRIGGER trg_suppliers_updated_at
       BEFORE UPDATE ON suppliers
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();

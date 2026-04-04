@@ -109,6 +109,7 @@ export class CreateAutomationConfigsTable1775261319611 implements MigrationInter
     );
 
     await queryRunner.query(`
+        DROP TRIGGER IF EXISTS trg_automation_configs_updated_at ON automation_configs;
       CREATE TRIGGER trg_automation_configs_updated_at
       BEFORE UPDATE ON automation_configs
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
