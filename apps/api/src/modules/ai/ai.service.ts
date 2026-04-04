@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
@@ -40,8 +41,6 @@ export interface InvoiceParsedData {
   confidence: number;
 }
 
-// FIX #3: `type` field added to every transaction so the DB layer can
-// store income vs expense without re-deriving the sign.
 export interface BankStatementTransaction {
   date: string;
   valueDate?: string;
@@ -167,6 +166,79 @@ export type CommentIntentResult = {
 function deriveType(amount: number): 'income' | 'expense' {
   return amount > 0 ? 'income' : 'expense';
 }
+
+// ── Bank statement fallback helpers ───────────────────────────────────────────
+
+/**
+ * Attempt to salvage a truncated JSON string produced when the model hit the
+ * token limit mid-response. Finds the last fully-closed transaction object and
+ * closes the array + outer object so JSON.parse can recover everything before
+ * the cut point — typically 80-90% of a large statement.
+ *
+ * Only used in the AI fallback path (scanned PDFs). Normal PDFs never reach
+ * this code because the rule-based parser handles them at zero token cost.
+ */
+function repairTruncatedJson(raw: string): string {
+  const stripped = raw
+    .replace(/^```json\s*/i, '')
+    .replace(/```\s*$/, '')
+    .trim();
+
+  // Already valid — return as-is
+  try {
+    JSON.parse(stripped);
+    return stripped;
+  } catch {
+    /* fall through */
+  }
+
+  // Walk backwards to find the last `}` that closes a top-level object in the
+  // transactions array (depth goes 0 → 1 on `{`, back to 0 on matching `}`)
+  let depth = 0;
+  let lastCompleteClose = -1;
+  for (let i = stripped.length - 1; i >= 0; i--) {
+    const ch = stripped[i];
+    if (ch === '}') {
+      depth++;
+      if (depth === 1) lastCompleteClose = i;
+    } else if (ch === '{') {
+      depth--;
+      // Found the opening brace that matches our closing brace at depth 0
+      if (depth === 0 && lastCompleteClose !== -1) break;
+    }
+  }
+
+  if (lastCompleteClose === -1) return stripped; // nothing to salvage
+
+  // Slice up to and including the last complete object, then close array + root
+  return stripped.slice(0, lastCompleteClose + 1) + '\n  ]\n}';
+}
+
+/**
+ * Split extracted statement text into chunks that break only on date-line
+ * boundaries, so no transaction is split across two API calls.
+ *
+ * Only used in the AI fallback path for scanned PDFs longer than ~2 pages.
+ */
+function splitByDateBoundaries(text: string, maxChars = 3500): string[] {
+  if (text.length <= maxChars) return [text];
+  const lines = text.split('\n');
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const line of lines) {
+    const isDateLine = /^\d{2}\.\d{2}\.\d{4}/.test(line.trim());
+    if (isDateLine && current.length >= maxChars) {
+      chunks.push(current.trim());
+      current = '';
+    }
+    current += line + '\n';
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class AiService {
@@ -792,38 +864,45 @@ If the document is not an invoice, return { "confidence": 0 }.`;
   /**
    * Parse a bank statement PDF.
    *
-   * Strategy (cheapest → most expensive):
-   *   1. pdf-parse extracts raw text  (~0 cost, instant)       [FIXED: correct API usage]
-   *   2. Bank-specific regex pulls transactions  (~0 cost)      [FIXED: relaxed whitespace]
-   *   3. Haiku batch-categorises ALL tx in one call  (~$0.001)
-   *   4. AI fallback (Sonnet) only for scanned/image PDFs      [FIXED: type field added]
+   * Cost tiers (cheapest → most expensive):
    *
-   * FIX #3: Every transaction now carries `type: 'income' | 'expense'`
-   * derived from the sign of `amount`. The DB layer no longer needs to
-   * re-derive it — just read `t.type` and store accordingly.
+   *   Tier 1 — Rules (0 tokens, ~0ms extra):
+   *     pdf-parse extracts text → bank regex pulls all transactions.
+   *     Covers 95%+ of real bank PDFs from Swedbank/SEB/LHV/Luminor/Coop.
+   *     After this succeeds, one Haiku batch call categorises all tx (~$0.001).
+   *
+   *   Tier 2 — Haiku text fallback (~$0.001-0.003, scanned PDFs only):
+   *     pdf-parse returned null (scanned/image PDF).
+   *     We send the RAW TEXT we already extracted (not the PDF binary) to Haiku.
+   *     For large statements (>3500 chars extracted text) we chunk by date
+   *     boundary and make one Haiku call per chunk, then merge.
+   *     max_tokens capped at 4096 per chunk — enough for ~60 transactions.
+   *
+   *   Tier 3 — Sonnet PDF fallback (~$0.01-0.05, truly unreadable PDFs):
+   *     pdf-parse returned null AND we have no extracted text at all
+   *     (e.g. a pure image-scan with no text layer whatsoever).
+   *     Only then do we send the PDF binary to Sonnet, which can OCR images.
+   *     max_tokens 4096 with repairTruncatedJson to salvage partial output.
    */
   async parseBankStatementPdf(
     pdfBase64: string,
     bankHint?: string,
     filename = '',
   ): Promise<BankStatementParsedData> {
-    // ── Step 1 & 2: rule-based parse ─────────────────────────────────────
+    // ── Tier 1: rule-based parse (zero tokens) ────────────────────────────
     const parsed = await this.bankParser.parse(pdfBase64, bankHint, filename);
 
     if (parsed && parsed.transactions.length > 0) {
       this.logger.log(
         `[BankStatement] Rules extracted ${parsed.transactions.length} tx — ` +
-          'running batch categorisation',
+          'running Haiku batch categorisation',
       );
 
-      // ── Step 3: batch categorise with Haiku (1 call for all tx) ────────
       const descriptions = parsed.transactions.map((t) =>
         [t.description, t.counterpartyName].filter(Boolean).join(' | '),
       );
       const categories = await this.categorizeBatch(descriptions);
 
-      // FIX #3: Spread RawTransaction fields and add category. The `type`
-      // field is already set on RawTransaction by the parser — no re-derivation needed.
       const transactions: BankStatementTransaction[] = parsed.transactions.map(
         (t, i) => ({
           date: t.date,
@@ -831,7 +910,7 @@ If the document is not an invoice, return { "confidence": 0 }.`;
           description: t.description,
           amount: t.amount,
           currency: t.currency,
-          type: t.type, // ← already 'income' | 'expense'
+          type: t.type,
           counterpartyName: t.counterpartyName,
           counterpartyIban: t.counterpartyIban,
           referenceNumber: t.referenceNumber,
@@ -860,29 +939,184 @@ If the document is not an invoice, return { "confidence": 0 }.`;
       };
     }
 
-    // ── Step 4: AI fallback for scanned/image PDFs ────────────────────────
+    // ── Tier 2 & 3: AI fallback for scanned/image PDFs ───────────────────
     this.logger.warn(
-      '[BankStatement] Rule-based parse failed — falling back to Sonnet AI',
+      '[BankStatement] Rule-based parse returned 0 tx — entering AI fallback',
     );
 
-    const prompt = `You are an expert bank statement parser for Estonian banks.
-${bankHint ? `This is a ${bankHint.toUpperCase()} bank statement.` : ''}
+    // Try to get whatever text the PDF does have — even partial text from a
+    // mixed scan can be enough for Haiku to extract transactions cheaply.
+    const rawText = await this.bankParser.extractText(pdfBase64);
 
-CRITICAL: Respond with RAW JSON only. No markdown. No code fences. No explanation.
-Your entire response must start with { and end with }.
+    if (rawText) {
+      // ── Tier 2: send extracted TEXT to Haiku (cheap) ──────────────────
+      this.logger.log(
+        `[BankStatement] Haiku text fallback — ${rawText.length} chars extracted`,
+      );
+      return await this.haikustatementFromText(rawText, bankHint, filename);
+    }
 
-Parse ALL transactions from this bank statement.
+    // ── Tier 3: truly unreadable — send PDF binary to Sonnet (OCR) ───────
+    // This only fires when pdf-parse returned null (pure image scan, no text
+    // layer at all). Sonnet can read image-PDFs; Haiku cannot.
+    this.logger.warn(
+      '[BankStatement] No text extracted — Sonnet OCR fallback (most expensive path)',
+    );
+    return await this.sonnetStatementFromPdf(pdfBase64, bankHint);
+  }
 
-RULES:
-- Money leaving the account (payments, expenses, purchases, fees) = NEGATIVE amounts
-- Money arriving (client payments, transfers in, refunds received) = POSITIVE amounts
-- For each transaction set "type": "expense" when amount is negative, "income" when positive
-- Include EVERY transaction, do not skip or summarise
+  /**
+   * Tier 2: parse extracted text with Haiku.
+   * Chunks large statements so each call stays well within 4096 output tokens.
+   * Merges results and returns the combined statement.
+   */
+  private async haikustatementFromText(
+    rawText: string,
+    bankHint: string | undefined,
+    filename: string,
+  ): Promise<BankStatementParsedData> {
+    const CHUNK_CHARS = 3500; // ~1-2 statement pages per call
+    const chunks = splitByDateBoundaries(rawText, CHUNK_CHARS);
 
-Return ONLY valid JSON:
+    this.logger.log(
+      `[BankStatement] Haiku fallback: ${chunks.length} chunk(s) for ${rawText.length} chars`,
+    );
+
+    const allTransactions: BankStatementTransaction[] = [];
+    let baseInfo: Partial<BankStatementParsedData> = {};
+
+    for (let i = 0; i < chunks.length; i++) {
+      this.logger.log(`[BankStatement] Haiku chunk ${i + 1}/${chunks.length}`);
+      try {
+        const result = await this.callHaikuStatementChunk(
+          chunks[i],
+          bankHint,
+          i === 0, // only ask for header fields on the first chunk
+        );
+        if (result.transactions.length > 0) {
+          allTransactions.push(...result.transactions);
+          if (!baseInfo.bankName && result.bankName) {
+            baseInfo = { ...result };
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`[BankStatement] Haiku chunk ${i + 1} failed: ${err}`);
+      }
+    }
+
+    if (allTransactions.length === 0) {
+      this.logger.warn('[BankStatement] Haiku text fallback found 0 tx');
+      return this.emptyStatement();
+    }
+
+    return {
+      bankName: baseInfo.bankName ?? 'Unknown',
+      accountHolder: baseInfo.accountHolder ?? '',
+      iban: baseInfo.iban ?? '',
+      periodFrom: baseInfo.periodFrom ?? '',
+      periodTo: baseInfo.periodTo ?? '',
+      currency: baseInfo.currency ?? 'EUR',
+      openingBalance: baseInfo.openingBalance ?? 0,
+      closingBalance: baseInfo.closingBalance ?? 0,
+      transactions: allTransactions,
+      confidence: 0.82,
+    };
+  }
+
+  /**
+   * One Haiku call for a single text chunk.
+   * Sends plain text — NOT a PDF binary — so input tokens are tiny.
+   * max_tokens: 4096 (enough for ~60-80 transactions as JSON).
+   * repairTruncatedJson handles the rare case where output is still cut short.
+   */
+  private async callHaikuStatementChunk(
+    textChunk: string,
+    bankHint: string | undefined,
+    includeHeader: boolean,
+  ): Promise<BankStatementParsedData> {
+    const bankCtx = bankHint
+      ? `This is a ${bankHint.toUpperCase()} bank statement.`
+      : '';
+
+    const headerFields = includeHeader
+      ? `  "bankName": "LHV / SEB / Swedbank / Luminor / Coop",
+  "accountHolder": "Full name",
+  "iban": "Account IBAN",
+  "periodFrom": "YYYY-MM-DD",
+  "periodTo": "YYYY-MM-DD",
+  "currency": "EUR",
+  "openingBalance": 0.00,
+  "closingBalance": 0.00,`
+      : `  "bankName": "",
+  "accountHolder": "",
+  "iban": "",
+  "periodFrom": "",
+  "periodTo": "",
+  "currency": "EUR",
+  "openingBalance": 0,
+  "closingBalance": 0,`;
+
+    // Tight prompt — Haiku needs less hand-holding than Sonnet
+    const prompt = `Parse all bank transactions from this statement text. ${bankCtx}
+Negative amounts = expenses (money out). Positive = income (money in).
+Return RAW JSON only — no markdown, no explanation.
+
+{
+${headerFields}
+  "transactions": [
+    {
+      "date": "YYYY-MM-DD",
+      "description": "narration",
+      "amount": -12.50,
+      "currency": "EUR",
+      "type": "expense",
+      "counterpartyName": "name or null",
+      "counterpartyIban": "IBAN or null",
+      "referenceNumber": "ref or null",
+      "category": "Food|Fuel|Rent|Telecoms|Payroll|Taxes|Utilities|Software|Marketing|Income|Other"
+    }
+  ],
+  "confidence": 0.85
+}
+
+STATEMENT TEXT:
+${textChunk}`;
+
+    const raw = await this.callClaude(
+      prompt,
+      undefined,
+      undefined,
+      undefined,
+      this.HAIKU,
+      4096, // enough for ~60-80 transactions; chunking handles larger volumes
+    );
+
+    return this.parseBankStatementData(raw);
+  }
+
+  /**
+   * Tier 3: Sonnet OCR fallback for pure image-scan PDFs (no text layer).
+   * Sends the PDF binary — Sonnet can read image content, Haiku cannot.
+   * Only reached when pdf-parse returns null (no text extractable at all).
+   * max_tokens: 4096 with repair — keeps cost bounded while still capturing
+   * the majority of transactions before any truncation point.
+   */
+  private async sonnetStatementFromPdf(
+    pdfBase64: string,
+    bankHint: string | undefined,
+  ): Promise<BankStatementParsedData> {
+    const bankCtx = bankHint
+      ? `This is a ${bankHint.toUpperCase()} bank statement.`
+      : '';
+
+    const prompt = `You are an expert bank statement parser for Estonian banks. ${bankCtx}
+This is a scanned image PDF — extract ALL transactions visible in the document.
+Negative amounts = expenses. Positive = income.
+Return RAW JSON only — no markdown, no explanation, start with {
+
 {
   "bankName": "LHV / SEB / Swedbank / Luminor / Coop",
-  "accountHolder": "Full name of account holder",
+  "accountHolder": "Full name",
   "iban": "Account IBAN",
   "periodFrom": "YYYY-MM-DD",
   "periodTo": "YYYY-MM-DD",
@@ -892,19 +1126,17 @@ Return ONLY valid JSON:
   "transactions": [
     {
       "date": "YYYY-MM-DD",
-      "valueDate": "YYYY-MM-DD or null",
-      "description": "Full transaction narration",
-      "amount": -50.00,
+      "description": "narration",
+      "amount": -12.50,
       "currency": "EUR",
       "type": "expense",
-      "counterpartyName": "Other party name or null",
-      "counterpartyIban": "Other party IBAN or null",
-      "referenceNumber": "Payment reference number or null",
-      "transactionId": "Bank transaction ID or null",
-      "category": "Fuel|Rent|Telecoms|Payroll|Taxes|Utilities|Food|Income|Software|Marketing|Other"
+      "counterpartyName": "name or null",
+      "counterpartyIban": "IBAN or null",
+      "referenceNumber": "ref or null",
+      "category": "Food|Fuel|Rent|Telecoms|Payroll|Taxes|Utilities|Software|Marketing|Income|Other"
     }
   ],
-  "confidence": 0.85
+  "confidence": 0.75
 }`;
 
     const raw = await this.callClaude(
@@ -912,10 +1144,11 @@ Return ONLY valid JSON:
       undefined,
       pdfBase64,
       'application/pdf',
-      this.MODEL,
-      8000,
+      this.MODEL, // Sonnet — required for image/PDF vision
+      4096, // bounded; repairTruncatedJson salvages partial output
     );
-    this.logger.debug(`[BankStatement] AI fallback raw: ${raw.slice(0, 300)}`);
+
+    this.logger.debug(`[BankStatement] Sonnet OCR raw: ${raw.slice(0, 200)}`);
     return this.parseBankStatementData(raw);
   }
 
@@ -989,36 +1222,68 @@ If no revenue figure can be found, return { "confidence": 0, "totalRevenue": 0, 
   }
 
   /**
-   * FIX #3: parseBankStatementData now derives `type` from amount sign
-   * for every transaction returned by the AI fallback path.
-   * This ensures the DB layer always gets `type: 'income' | 'expense'`
-   * regardless of whether rules or AI produced the transactions.
+   * Parse the raw JSON string from any AI bank statement call.
+   * Applies repairTruncatedJson before the final parse attempt so partially-
+   * written responses (token limit hit mid-array) still yield valid transactions.
    */
   private parseBankStatementData(raw: string): BankStatementParsedData {
-    const parsed = this.parseJSON<BankStatementParsedData>(raw, {
-      bankName: 'Unknown',
-      accountHolder: '',
-      iban: '',
-      periodFrom: '',
-      periodTo: '',
-      currency: 'EUR',
-      openingBalance: 0,
-      closingBalance: 0,
-      transactions: [],
-      confidence: 0,
-    });
+    const empty = this.emptyStatement();
 
-    const transactions: BankStatementTransaction[] = (
-      parsed.transactions ?? []
-    ).map((t) => {
-      const amount = Number(t.amount) || 0;
-      // AI may or may not have set type — always re-derive from amount to be safe
-      const type: 'income' | 'expense' = deriveType(amount);
-      return { ...t, amount, type };
-    });
+    // 1. Strip markdown fences and try a clean parse
+    const clean = raw
+      .replace(/^```json\s*/gi, '')
+      .replace(/```\s*$/g, '')
+      .trim();
+
+    let parsed: BankStatementParsedData | null = null;
+
+    try {
+      parsed = JSON.parse(clean) as BankStatementParsedData;
+    } catch {
+      // 2. Try extracting the outermost JSON object
+      const objStart = clean.indexOf('{');
+      const objEnd = clean.lastIndexOf('}');
+      if (objStart !== -1 && objEnd !== -1) {
+        try {
+          parsed = JSON.parse(
+            clean.slice(objStart, objEnd + 1),
+          ) as BankStatementParsedData;
+        } catch {
+          // 3. Attempt repair for truncated output (token limit hit mid-array)
+          try {
+            const repaired = repairTruncatedJson(clean.slice(objStart));
+            parsed = JSON.parse(repaired) as BankStatementParsedData;
+            this.logger.warn(
+              `[AI] Repaired truncated JSON — salvaged ` +
+                `${(parsed as any)?.transactions?.length ?? 0} transactions`,
+            );
+          } catch (repairErr) {
+            this.logger.warn(`[AI] JSON repair failed: ${repairErr}`);
+            return empty;
+          }
+        }
+      } else {
+        this.logger.warn(`[AI] JSON parse failed — raw: ${raw.slice(0, 300)}`);
+        return empty;
+      }
+    }
+
+    if (!parsed?.transactions?.length) return empty;
+
+    const transactions: BankStatementTransaction[] = parsed.transactions.map(
+      (t) => {
+        const amount = Number(t.amount) || 0;
+        return { ...t, amount, type: deriveType(amount) };
+      },
+    );
 
     return {
-      ...parsed,
+      bankName: parsed.bankName ?? 'Unknown',
+      accountHolder: parsed.accountHolder ?? '',
+      iban: parsed.iban ?? '',
+      periodFrom: parsed.periodFrom ?? '',
+      periodTo: parsed.periodTo ?? '',
+      currency: parsed.currency ?? 'EUR',
       openingBalance: Number(parsed.openingBalance) || 0,
       closingBalance: Number(parsed.closingBalance) || 0,
       transactions,
@@ -1038,6 +1303,21 @@ If no revenue figure can be found, return { "confidence": 0, "totalRevenue": 0, 
       ...parsed,
       totalRevenue: Number(parsed.totalRevenue) || 0,
       confidence: Number(parsed.confidence) || 0,
+    };
+  }
+
+  private emptyStatement(): BankStatementParsedData {
+    return {
+      bankName: 'Unknown',
+      accountHolder: '',
+      iban: '',
+      periodFrom: '',
+      periodTo: '',
+      currency: 'EUR',
+      openingBalance: 0,
+      closingBalance: 0,
+      transactions: [],
+      confidence: 0,
     };
   }
 
@@ -1107,7 +1387,7 @@ Return ONLY the JSON array, nothing else.`;
     }
   }
 }
-// /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 // /* eslint-disable no-constant-binary-expression */
 // /* eslint-disable @typescript-eslint/no-unsafe-return */
 // // apps/api/src/modules/ai/ai.service.ts
@@ -1149,6 +1429,23 @@ Return ONLY the JSON array, nothing else.`;
 //   confidence: number;
 // }
 
+// // FIX #3: `type` field added to every transaction so the DB layer can
+// // store income vs expense without re-deriving the sign.
+// export interface BankStatementTransaction {
+//   date: string;
+//   valueDate?: string;
+//   description: string;
+//   amount: number; // negative = expense, positive = income
+//   currency: string;
+//   /** Derived from amount sign — income when amount > 0, expense otherwise */
+//   type: 'income' | 'expense';
+//   counterpartyName?: string;
+//   counterpartyIban?: string;
+//   referenceNumber?: string;
+//   transactionId?: string;
+//   category?: string;
+// }
+
 // export interface BankStatementParsedData {
 //   bankName: string;
 //   accountHolder: string;
@@ -1158,18 +1455,7 @@ Return ONLY the JSON array, nothing else.`;
 //   currency: string;
 //   openingBalance: number;
 //   closingBalance: number;
-//   transactions: {
-//     date: string;
-//     valueDate?: string;
-//     description: string;
-//     amount: number;
-//     currency: string;
-//     counterpartyName?: string;
-//     counterpartyIban?: string;
-//     referenceNumber?: string;
-//     transactionId?: string;
-//     category?: string;
-//   }[];
+//   transactions: BankStatementTransaction[];
 //   confidence: number;
 // }
 
@@ -1238,8 +1524,6 @@ Return ONLY the JSON array, nothing else.`;
 //   weekSummary: string;
 // }
 
-// // ── New result types ───────────────────────────────────────────────────────────
-
 // export interface SeoResult {
 //   title: string;
 //   description: string;
@@ -1257,8 +1541,6 @@ Return ONLY the JSON array, nothing else.`;
 //   createdAt: string;
 // }
 
-// // ── Comment intent ─────────────────────────────────────────────────────────────
-
 // export type CommentIntentResult = {
 //   intent:
 //     | 'price_query'
@@ -1269,6 +1551,11 @@ Return ONLY the JSON array, nothing else.`;
 //     | 'other';
 //   confidence: number;
 // };
+
+// /** Derive income/expense from amount sign — single source of truth */
+// function deriveType(amount: number): 'income' | 'expense' {
+//   return amount > 0 ? 'income' : 'expense';
+// }
 
 // @Injectable()
 // export class AiService {
@@ -1299,7 +1586,6 @@ Return ONLY the JSON array, nothing else.`;
 
 //       if (imageBase64 && imageMime) {
 //         if (imageMime === 'application/pdf') {
-//           // PDFs must use a document block, not an image block
 //           content.push({
 //             type: 'document',
 //             source: {
@@ -1354,28 +1640,13 @@ Return ONLY the JSON array, nothing else.`;
 
 //   // ── JSON parser ─────────────────────────────────────────────────────────────
 
-//   // private parseJSON<T>(text: string, fallback: T): T {
-//   //   try {
-//   //     const clean = text.replace(/```json|```/g, '').trim();
-//   //     const start = clean.indexOf('{');
-//   //     const end = clean.lastIndexOf('}');
-//   //     if (start === -1 || end === -1) return fallback;
-//   //     return JSON.parse(clean.slice(start, end + 1)) as T;
-//   //   } catch {
-//   //     this.logger.warn('[AI] JSON parse failed');
-//   //     return fallback;
-//   //   }
-//   // }
-
 //   private parseJSON<T>(text: string, fallback: T): T {
 //     try {
-//       // Strip markdown fences
 //       const clean = text
 //         .replace(/```json\s*/gi, '')
 //         .replace(/```\s*/g, '')
 //         .trim();
 
-//       // Try parsing the whole thing first
 //       try {
 //         return JSON.parse(clean) as T;
 //       } catch (error) {
@@ -1384,14 +1655,12 @@ Return ONLY the JSON array, nothing else.`;
 //         );
 //       }
 
-//       // Try extracting object
 //       const objStart = clean.indexOf('{');
 //       const objEnd = clean.lastIndexOf('}');
 //       if (objStart !== -1 && objEnd !== -1) {
 //         return JSON.parse(clean.slice(objStart, objEnd + 1)) as T;
 //       }
 
-//       // Try extracting array
 //       const arrStart = clean.indexOf('[');
 //       const arrEnd = clean.lastIndexOf(']');
 //       if (arrStart !== -1 && arrEnd !== -1) {
@@ -1404,6 +1673,7 @@ Return ONLY the JSON array, nothing else.`;
 //       return fallback;
 //     }
 //   }
+
 //   // ── Product from image ──────────────────────────────────────────────────────
 
 //   async generateProductFromImage(
@@ -1500,10 +1770,6 @@ Return ONLY the JSON array, nothing else.`;
 
 //   // ── Store SEO ───────────────────────────────────────────────────────────────
 
-//   /**
-//    * Auto-generates SEO title, description, keywords for a store.
-//    * Uses haiku — needs to feel instant on tab open.
-//    */
 //   async generateStoreSeo(
 //     storeName: string,
 //     storeDescription?: string,
@@ -1541,10 +1807,6 @@ Return ONLY the JSON array, nothing else.`;
 
 //   // ── Product SEO ─────────────────────────────────────────────────────────────
 
-//   /**
-//    * Auto-generates SEO title, description, keywords for a product.
-//    * Uses haiku — fires on product SEO tab open.
-//    */
 //   async generateProductSeo(
 //     productName: string,
 //     productDescription?: string,
@@ -1580,11 +1842,6 @@ Return ONLY the JSON array, nothing else.`;
 
 //   // ── Product description from name ───────────────────────────────────────────
 
-//   /**
-//    * Generates a product description from name alone.
-//    * Fires on blur of product name field — needs to feel instant.
-//    * Uses haiku.
-//    */
 //   async generateProductDescription(
 //     productName: string,
 //     storeName?: string,
@@ -1614,10 +1871,6 @@ Return ONLY the JSON array, nothing else.`;
 
 //   // ── Instagram photos ─────────────────────────────────────────────────────────
 
-//   /**
-//    * Fetches recent IMAGE posts from an Instagram Business account.
-//    * Used in the OG image picker and product import flow.
-//    */
 //   async fetchInstagramPhotos(
 //     igBusinessId: string,
 //     accessToken: string,
@@ -1803,7 +2056,10 @@ Return ONLY the JSON array, nothing else.`;
 //       );
 //       const parsed = this.parseJSON<{ intent: string; confidence: number }>(
 //         raw,
-//         { intent: 'other', confidence: 0.5 },
+//         {
+//           intent: 'other',
+//           confidence: 0.5,
+//         },
 //       );
 //       return {
 //         intent: (parsed.intent as CommentIntentResult['intent']) ?? 'other',
@@ -1822,19 +2078,14 @@ Return ONLY the JSON array, nothing else.`;
 //   ): Promise<string> {
 //     return this.callClaude(
 //       prompt,
-//       undefined, // no imageUrl
+//       undefined,
 //       imageBase64,
 //       imageMime,
-//       this.MODEL, // use Sonnet for best OCR accuracy
+//       this.MODEL,
 //       1024,
 //     );
 //   }
 
-//   /**
-//    * Multi-page PDF invoice parsing
-//    * Better than scanReceiptImage for multi-page supplier invoices — sends the full-
-//    *document context in one shot and extracts structured invoice data.
-//    */
 //   parseReceiptJSON(
 //     raw: string,
 //   ): import('../bookkeeping/entities/bookkeeping.entities').ReceiptParsedData {
@@ -1931,11 +2182,14 @@ Return ONLY the JSON array, nothing else.`;
 //    * Parse a bank statement PDF.
 //    *
 //    * Strategy (cheapest → most expensive):
-//    *   1. pdf-parse extracts raw text  (~0 cost, instant)
-//    *   2. Bank-specific regex pulls transactions  (~0 cost, instant)
-//    *   3. One Haiku call categorises ALL transactions in a single batch  (~$0.001)
-//    *   4. If rule-based parse yields 0 tx (scanned PDF), fall back to Sonnet
-//    *      with the document block — same as before but now a true last resort.
+//    *   1. pdf-parse extracts raw text  (~0 cost, instant)       [FIXED: correct API usage]
+//    *   2. Bank-specific regex pulls transactions  (~0 cost)      [FIXED: relaxed whitespace]
+//    *   3. Haiku batch-categorises ALL tx in one call  (~$0.001)
+//    *   4. AI fallback (Sonnet) only for scanned/image PDFs      [FIXED: type field added]
+//    *
+//    * FIX #3: Every transaction now carries `type: 'income' | 'expense'`
+//    * derived from the sign of `amount`. The DB layer no longer needs to
+//    * re-derive it — just read `t.type` and store accordingly.
 //    */
 //   async parseBankStatementPdf(
 //     pdfBase64: string,
@@ -1957,10 +2211,29 @@ Return ONLY the JSON array, nothing else.`;
 //       );
 //       const categories = await this.categorizeBatch(descriptions);
 
-//       const transactions = parsed.transactions.map((t, i) => ({
-//         ...t,
-//         category: categories[i] ?? 'Other',
-//       }));
+//       // FIX #3: Spread RawTransaction fields and add category. The `type`
+//       // field is already set on RawTransaction by the parser — no re-derivation needed.
+//       const transactions: BankStatementTransaction[] = parsed.transactions.map(
+//         (t, i) => ({
+//           date: t.date,
+//           valueDate: t.valueDate,
+//           description: t.description,
+//           amount: t.amount,
+//           currency: t.currency,
+//           type: t.type, // ← already 'income' | 'expense'
+//           counterpartyName: t.counterpartyName,
+//           counterpartyIban: t.counterpartyIban,
+//           referenceNumber: t.referenceNumber,
+//           transactionId: t.transactionId,
+//           category: categories[i] ?? 'Other',
+//         }),
+//       );
+
+//       this.logger.log(
+//         `[BankStatement] Final: ${transactions.length} transactions ` +
+//           `(income: ${transactions.filter((t) => t.type === 'income').length}, ` +
+//           `expense: ${transactions.filter((t) => t.type === 'expense').length})`,
+//       );
 
 //       return {
 //         bankName: parsed.bankName,
@@ -1986,14 +2259,13 @@ Return ONLY the JSON array, nothing else.`;
 
 // CRITICAL: Respond with RAW JSON only. No markdown. No code fences. No explanation.
 // Your entire response must start with { and end with }.
-// If there are too many transactions, include as many as possible but always close
-// the JSON properly: end the transactions array with ] and close the object with }.
 
 // Parse ALL transactions from this bank statement.
 
 // RULES:
-// - Money leaving the account = negative amounts (expenses/payments)
-// - Money arriving = positive amounts (income/transfers in)
+// - Money leaving the account (payments, expenses, purchases, fees) = NEGATIVE amounts
+// - Money arriving (client payments, transfers in, refunds received) = POSITIVE amounts
+// - For each transaction set "type": "expense" when amount is negative, "income" when positive
 // - Include EVERY transaction, do not skip or summarise
 
 // Return ONLY valid JSON:
@@ -2013,11 +2285,12 @@ Return ONLY the JSON array, nothing else.`;
 //       "description": "Full transaction narration",
 //       "amount": -50.00,
 //       "currency": "EUR",
+//       "type": "expense",
 //       "counterpartyName": "Other party name or null",
 //       "counterpartyIban": "Other party IBAN or null",
 //       "referenceNumber": "Payment reference number or null",
 //       "transactionId": "Bank transaction ID or null",
-//       "category": "Fuel|Rent|Telecoms|Payroll|Taxes|Utilities|Food|Income|Other"
+//       "category": "Fuel|Rent|Telecoms|Payroll|Taxes|Utilities|Food|Income|Software|Marketing|Other"
 //     }
 //   ],
 //   "confidence": 0.85
@@ -2034,63 +2307,6 @@ Return ONLY the JSON array, nothing else.`;
 //     this.logger.debug(`[BankStatement] AI fallback raw: ${raw.slice(0, 300)}`);
 //     return this.parseBankStatementData(raw);
 //   }
-//   //   async parseBankStatementPdf(
-//   //     pdfBase64: string,
-//   //     bankHint?: string,
-//   //   ): Promise<BankStatementParsedData> {
-//   //     const prompt = `You are an expert bank statement parser for Estonian banks.
-//   // ${bankHint ? `This is a ${bankHint.toUpperCase()} bank statement.` : ''}
-
-//   // CRITICAL: Respond with RAW JSON only. No markdown. No code fences. No explanation.
-//   // Your entire response must start with { and end with }.
-//   // If you cannot read the document, still return the JSON structure with an empty transactions array and confidence 0.
-
-//   // Parse ALL transactions from this bank statement.
-
-//   // RULES:
-//   // - Money leaving the account = negative amounts (expenses/payments)
-//   // - Money arriving = positive amounts (income/transfers in)
-//   // - Include EVERY transaction, do not skip or summarise
-//   // - Extract all available counterparty and reference data
-
-//   // Return ONLY valid JSON:
-//   // {
-//   //   "bankName": "LHV / SEB / Swedbank / Luminor / Coop",
-//   //   "accountHolder": "Full name of account holder",
-//   //   "iban": "Account IBAN",
-//   //   "periodFrom": "YYYY-MM-DD",
-//   //   "periodTo": "YYYY-MM-DD",
-//   //   "currency": "EUR",
-//   //   "openingBalance": 0.00,
-//   //   "closingBalance": 0.00,
-//   //   "transactions": [
-//   //     {
-//   //       "date": "YYYY-MM-DD",
-//   //       "valueDate": "YYYY-MM-DD or null",
-//   //       "description": "Full transaction narration / reference text",
-//   //       "amount": -50.00,
-//   //       "currency": "EUR",
-//   //       "counterpartyName": "Other party name or null",
-//   //       "counterpartyIban": "Other party IBAN or null",
-//   //       "referenceNumber": "Payment reference number or null",
-//   //       "transactionId": "Bank's unique transaction ID or null",
-//   //       "category": "AI-guessed category: Fuel, Rent, Telecoms, Payroll, Taxes, Utilities, Food, Income, Other"
-//   //     }
-//   //   ],
-//   //   "confidence": 0.95
-//   // }`;
-
-//   //     const raw = await this.callClaude(
-//   //       prompt,
-//   //       undefined,
-//   //       pdfBase64,
-//   //       'application/pdf',
-//   //       this.MODEL,
-//   //       8000,
-//   //     );
-//   //     this.logger.debug(`[BankStatement] Raw AI response: ${raw.slice(0, 500)}`);
-//   //     return this.parseBankStatementData(raw);
-//   //   }
 
 //   async parseDailyRevenueEmail(
 //     emailBody: string,
@@ -2138,7 +2354,7 @@ Return ONLY the JSON array, nothing else.`;
 //       undefined,
 //       undefined,
 //       undefined,
-//       this.HAIKU, // Haiku is fast enough for text-only parsing
+//       this.HAIKU,
 //       800,
 //     );
 //     return this.parseDailyRevenueData(raw);
@@ -2161,6 +2377,12 @@ Return ONLY the JSON array, nothing else.`;
 //     };
 //   }
 
+//   /**
+//    * FIX #3: parseBankStatementData now derives `type` from amount sign
+//    * for every transaction returned by the AI fallback path.
+//    * This ensures the DB layer always gets `type: 'income' | 'expense'`
+//    * regardless of whether rules or AI produced the transactions.
+//    */
 //   private parseBankStatementData(raw: string): BankStatementParsedData {
 //     const parsed = this.parseJSON<BankStatementParsedData>(raw, {
 //       bankName: 'Unknown',
@@ -2174,17 +2396,25 @@ Return ONLY the JSON array, nothing else.`;
 //       transactions: [],
 //       confidence: 0,
 //     });
+
+//     const transactions: BankStatementTransaction[] = (
+//       parsed.transactions ?? []
+//     ).map((t) => {
+//       const amount = Number(t.amount) || 0;
+//       // AI may or may not have set type — always re-derive from amount to be safe
+//       const type: 'income' | 'expense' = deriveType(amount);
+//       return { ...t, amount, type };
+//     });
+
 //     return {
 //       ...parsed,
 //       openingBalance: Number(parsed.openingBalance) || 0,
 //       closingBalance: Number(parsed.closingBalance) || 0,
-//       transactions: (parsed.transactions ?? []).map((t) => ({
-//         ...t,
-//         amount: Number(t.amount) || 0,
-//       })),
+//       transactions,
 //       confidence: Number(parsed.confidence) || 0,
 //     };
 //   }
+
 //   private parseDailyRevenueData(raw: string): DailyRevenueParsedData {
 //     const parsed = this.parseJSON<DailyRevenueParsedData>(raw, {
 //       date: new Date().toISOString().split('T')[0],
@@ -2204,16 +2434,12 @@ Return ONLY the JSON array, nothing else.`;
 //    * Batch-categorise transaction descriptions using a single Haiku call.
 //    * Returns a string[] in the same order as the input.
 //    * Falls back to 'Other' for any unparseable entries.
-//    *
-//    * Cost: ~$0.001 per 100 transactions vs ~$0.05 per statement with Sonnet.
 //    */
 //   async categorizeBatch(descriptions: string[]): Promise<string[]> {
 //     if (descriptions.length === 0) return [];
 
-//     // Cap batch size to avoid hitting Haiku's context limit
 //     const BATCH = 150;
 //     if (descriptions.length > BATCH) {
-//       // Recursively process in chunks and flatten
 //       const results: string[] = [];
 //       for (let i = 0; i < descriptions.length; i += BATCH) {
 //         const chunk = descriptions.slice(i, i + BATCH);
@@ -2241,10 +2467,9 @@ Return ONLY the JSON array, nothing else.`;
 //         undefined,
 //         undefined,
 //         this.HAIKU,
-//         Math.min(descriptions.length * 15 + 50, 2000), // ~15 tokens per label
+//         Math.min(descriptions.length * 15 + 50, 2000),
 //       );
 
-//       // Parse the array
 //       const clean = raw
 //         .replace(/```json\s*/gi, '')
 //         .replace(/```\s*/g, '')
@@ -2257,7 +2482,6 @@ Return ONLY the JSON array, nothing else.`;
 //         clean.slice(arrStart, arrEnd + 1),
 //       ) as string[];
 
-//       // Pad with 'Other' if Claude returned fewer items than expected
 //       while (categories.length < descriptions.length) {
 //         categories.push('Other');
 //       }

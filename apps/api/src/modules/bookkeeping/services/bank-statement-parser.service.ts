@@ -14,9 +14,12 @@
 //   → RawTransaction[] → caller handles categorisation via AI (batch, cheap)
 
 import { Injectable, Logger } from '@nestjs/common';
-// FIX #1: pdf-parse exports a plain async function, NOT a class.
-// import { PDFParse } from 'pdf-parse'  ← this was wrong and threw at runtime,
-// making extractText() always return null → 0 transactions → error 1.
+// FIX #1: `import * as pdfParse` gives the module namespace object — not a callable.
+// We resolve the actual async function at runtime in extractText() below:
+//   - ESM interop shape → pdfParse.default is the function
+//   - CJS shape         → pdfParse itself is the function
+// Calling the namespace directly was the root cause of "pdfParse is not a function"
+// and the entire AI-fallback / token-burn cascade that followed.
 import * as pdfParse from 'pdf-parse';
 
 // ── Shared transaction shape (pre-AI-categorisation) ─────────────────────────
@@ -66,7 +69,6 @@ function estDateShort(raw: string): string {
 
 /** Parse Estonian/European decimal: "1 234,56" or "1234.56" or "-50,19" */
 function parseAmount(raw: string): number {
-  // Strip thousands separators (space or dot used as thousands) then normalise decimal comma
   const cleaned = raw
     .replace(/\s/g, '')
     .replace(/\.(?=\d{3}(?:[,]|\d{0,0}$))/g, '')
@@ -74,12 +76,6 @@ function parseAmount(raw: string): number {
   return parseFloat(cleaned);
 }
 
-/**
- * FIX #3: Derive income/expense type from amount sign.
- * - Positive amount  → money in  → income
- * - Negative amount  → money out → expense
- * - Zero             → treat as expense (edge case, DB layer should ignore)
- */
 function deriveType(amount: number): 'income' | 'expense' {
   return amount > 0 ? 'income' : 'expense';
 }
@@ -100,19 +96,14 @@ export function detectBank(text: string, filename = ''): string | null {
   return null;
 }
 
-// ── Whitespace normaliser ──────────────────────────────────────────────────────
-// pdf-parse sometimes collapses multiple spaces to one. We normalise so regexes
-// that relied on \s{2,} don't silently match nothing.
+// ── Whitespace normaliser ─────────────────────────────────────────────────────
 
 function normaliseSpaces(text: string): string {
-  // Convert tabs to spaces, collapse 3+ spaces to 2 (keep double-space as column separator hint)
   return text.replace(/\t/g, '  ').replace(/ {3,}/g, '  ');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SWEDBANK
-// Format: tabular PDF, columns separated by whitespace
-// Date | Beneficiary/Remitter | Details | Amount | Balance
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseSwedbankText(text: string): Omit<ParsedStatement, 'parseMethod'> {
@@ -159,13 +150,8 @@ function parseSwedbankText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
   const transactions: RawTransaction[] = [];
 
-  // FIX #4: Accept both single-space and double-space column separators.
-  // Pattern 1: full row with two dates (value date included)
-  // "01.03.2026  01.03.2026  BOLT FOOD  EE... -12,50 EUR 164,62"
   const txFullRe =
     /^(\d{2}\.\d{2}\.\d{4})\s{1,2}(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s]+[,.']\d{2})\s+EUR/gm;
-
-  // Pattern 2: single date row
   const txSimpleRe =
     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([-\d\s]+[,.']\d{2})\s*$/gm;
 
@@ -190,7 +176,7 @@ function parseSwedbankText(text: string): Omit<ParsedStatement, 'parseMethod'> {
         description: desc.trim(),
         amount,
         currency: 'EUR',
-        type: deriveType(amount), // FIX #3
+        type: deriveType(amount),
       });
     }
   }
@@ -218,14 +204,10 @@ function buildSwedbankTx(
   const counterpartyIban = ibanMatch
     ? ibanMatch[0].replace(/\s/g, '')
     : undefined;
-
   const refMatch = desc.match(/(?:viitenr?|ref)[.:\s]+(\d{3,20})/i);
-  const referenceNumber = refMatch ? refMatch[1] : undefined;
-
   let counterpartyName: string | undefined;
-  if (counterpartyIban) {
+  if (counterpartyIban)
     counterpartyName = desc.split(counterpartyIban)[0].trim() || undefined;
-  }
 
   return {
     date: estDate(dateRaw),
@@ -233,17 +215,15 @@ function buildSwedbankTx(
     description: desc,
     amount,
     currency: 'EUR',
-    type: deriveType(amount), // FIX #3
+    type: deriveType(amount),
     counterpartyName,
     counterpartyIban,
-    referenceNumber,
+    referenceNumber: refMatch ? refMatch[1] : undefined,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SEB
-// Format: tabular, columns: Date | Description | Debit | Credit | Balance
-// Amounts in separate debit/credit columns (no sign)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseSebText(text: string): Omit<ParsedStatement, 'parseMethod'> {
@@ -288,7 +268,6 @@ function parseSebText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
   const transactions: RawTransaction[] = [];
 
-  // FIX #4: relaxed to \s+ instead of \s{2,} for single-space PDFs
   const txRe =
     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([\d\s,.']+)?\s{2,}([\d\s,.']+)?\s{2,}[\d\s,.']+$/gm;
 
@@ -304,13 +283,9 @@ function parseSebText(text: string): Omit<ParsedStatement, 'parseMethod'> {
     } else {
       continue;
     }
-
     if (isNaN(amount)) continue;
 
     const ibanMatch = desc.match(/EE\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}/);
-    const counterpartyIban = ibanMatch
-      ? ibanMatch[0].replace(/\s/g, '')
-      : undefined;
     const refMatch = desc.match(/(?:ref|viitenr?)[.:\s]+(\d{3,20})/i);
 
     transactions.push({
@@ -318,8 +293,8 @@ function parseSebText(text: string): Omit<ParsedStatement, 'parseMethod'> {
       description: desc.trim(),
       amount,
       currency: 'EUR',
-      type: deriveType(amount), // FIX #3
-      counterpartyIban,
+      type: deriveType(amount),
+      counterpartyIban: ibanMatch ? ibanMatch[0].replace(/\s/g, '') : undefined,
       referenceNumber: refMatch ? refMatch[1] : undefined,
     });
   }
@@ -339,8 +314,6 @@ function parseSebText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LHV
-// Format: CSV-export PDF or tabular
-// Columns: Kuupäev | Selgitus | Deebet | Kreedit | Saldo
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseLhvText(text: string): Omit<ParsedStatement, 'parseMethod'> {
@@ -381,10 +354,7 @@ function parseLhvText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
   const transactions: RawTransaction[] = [];
 
-  // Primary: signed amount with EUR suffix
   const txRe = /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s,.']+)\s+EUR/gm;
-
-  // Fallback: debit / credit split columns
   const txSplitRe =
     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([\d\s,.']+)?\s{2,}([\d\s,.']+)?/gm;
 
@@ -404,7 +374,7 @@ function parseLhvText(text: string): Omit<ParsedStatement, 'parseMethod'> {
       description: desc.trim(),
       amount,
       currency: 'EUR',
-      type: deriveType(amount), // FIX #3
+      type: deriveType(amount),
       counterpartyIban: ibanMatch ? ibanMatch[0].replace(/\s/g, '') : undefined,
       referenceNumber: refMatch ? refMatch[1] : undefined,
       transactionId: archMatch ? archMatch[1] : undefined,
@@ -426,7 +396,7 @@ function parseLhvText(text: string): Omit<ParsedStatement, 'parseMethod'> {
         description: desc.trim(),
         amount,
         currency: 'EUR',
-        type: deriveType(amount), // FIX #3
+        type: deriveType(amount),
       });
     }
   }
@@ -446,8 +416,6 @@ function parseLhvText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LUMINOR
-// Format: tabular, Date | Value date | Description | Amount | Balance
-// Amounts signed (negative = debit)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseLuminorText(text: string): Omit<ParsedStatement, 'parseMethod'> {
@@ -490,7 +458,6 @@ function parseLuminorText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
   const transactions: RawTransaction[] = [];
 
-  // FIX #4: relaxed whitespace between columns
   const txRe =
     /^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s,.']+)\s+EUR/gm;
 
@@ -509,7 +476,7 @@ function parseLuminorText(text: string): Omit<ParsedStatement, 'parseMethod'> {
       description: desc.trim(),
       amount,
       currency: 'EUR',
-      type: deriveType(amount), // FIX #3
+      type: deriveType(amount),
       counterpartyIban: ibanMatch ? ibanMatch[0].replace(/\s/g, '') : undefined,
       referenceNumber: refMatch ? refMatch[1] : undefined,
     });
@@ -530,7 +497,6 @@ function parseLuminorText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COOP PANK
-// Format: similar to LHV — tabular with signed amounts
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseCoopText(text: string): Omit<ParsedStatement, 'parseMethod'> {
@@ -573,7 +539,6 @@ function parseCoopText(text: string): Omit<ParsedStatement, 'parseMethod'> {
 
   const transactions: RawTransaction[] = [];
 
-  // FIX #4: relaxed whitespace
   const txRe =
     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s,.']+)\s*(?:EUR)?$/gm;
 
@@ -591,7 +556,7 @@ function parseCoopText(text: string): Omit<ParsedStatement, 'parseMethod'> {
       description: desc.trim(),
       amount,
       currency: 'EUR',
-      type: deriveType(amount), // FIX #3
+      type: deriveType(amount),
       counterpartyIban: ibanMatch ? ibanMatch[0].replace(/\s/g, '') : undefined,
       referenceNumber: refMatch ? refMatch[1] : undefined,
     });
@@ -622,21 +587,27 @@ export class BankStatementParserService {
    * Extract text from PDF base64 string using pdf-parse.
    * Returns null if extraction fails (scanned/image PDF).
    *
-   * FIX #1: pdfParse is a plain async function — call it directly, not with `new`.
+   * FIX #1: Resolve the callable at runtime to handle both interop shapes:
+   *   typeof pdfParse.default === 'function'  → ESM shape, use .default
+   *   otherwise                               → CJS shape, use pdfParse directly
    */
   async extractText(pdfBase64: string): Promise<string | null> {
     try {
       const buffer = Buffer.from(pdfBase64, 'base64');
 
-      // pdf-parse can throw on some malformed PDFs — wrap defensively
-      const result = await (pdfParse as any)(buffer);
+      const pdfFn = (
+        typeof (pdfParse as any).default === 'function'
+          ? (pdfParse as any).default
+          : (pdfParse as any)
+      ) as (buf: Buffer) => Promise<{ text: string }>;
+
+      const result = await pdfFn(buffer);
       const text: string = result?.text ?? '';
 
       this.logger.debug(
         `[Parser] pdf-parse extracted ${text.replace(/\s/g, '').length} non-space chars`,
       );
 
-      // Heuristic: if we got very little text, it's likely a scanned PDF
       if (text.replace(/\s/g, '').length < 200) {
         this.logger.warn(
           '[Parser] PDF yielded <200 chars — likely scanned image',
@@ -704,7 +675,6 @@ export class BankStatementParserService {
       return null;
     }
 
-    // FIX #3: Ensure every transaction has type set (guard for any missed paths)
     const transactions = result.transactions.map((t) => ({
       ...t,
       type: t.type ?? deriveType(t.amount),
@@ -736,15 +706,21 @@ export class BankStatementParserService {
 // //   → RawTransaction[] → caller handles categorisation via AI (batch, cheap)
 
 // import { Injectable, Logger } from '@nestjs/common';
-// import { PDFParse } from 'pdf-parse';
+// // FIX #1: pdf-parse exports a plain async function, NOT a class.
+// // import { PDFParse } from 'pdf-parse'  ← this was wrong and threw at runtime,
+// // making extractText() always return null → 0 transactions → error 1.
+// import * as pdfParse from 'pdf-parse';
+
 // // ── Shared transaction shape (pre-AI-categorisation) ─────────────────────────
 
 // export interface RawTransaction {
 //   date: string; // YYYY-MM-DD
 //   valueDate?: string; // YYYY-MM-DD
 //   description: string;
-//   amount: number; // negative = debit, positive = credit
+//   amount: number; // negative = debit/expense, positive = credit/income
 //   currency: string;
+//   /** Derived from amount sign — set here so callers never have to re-derive */
+//   type: 'income' | 'expense';
 //   counterpartyName?: string;
 //   counterpartyIban?: string;
 //   referenceNumber?: string;
@@ -782,7 +758,22 @@ export class BankStatementParserService {
 
 // /** Parse Estonian/European decimal: "1 234,56" or "1234.56" or "-50,19" */
 // function parseAmount(raw: string): number {
-//   return parseFloat(raw.replace(/\s/g, '').replace(',', '.'));
+//   // Strip thousands separators (space or dot used as thousands) then normalise decimal comma
+//   const cleaned = raw
+//     .replace(/\s/g, '')
+//     .replace(/\.(?=\d{3}(?:[,]|\d{0,0}$))/g, '')
+//     .replace(',', '.');
+//   return parseFloat(cleaned);
+// }
+
+// /**
+//  * FIX #3: Derive income/expense type from amount sign.
+//  * - Positive amount  → money in  → income
+//  * - Negative amount  → money out → expense
+//  * - Zero             → treat as expense (edge case, DB layer should ignore)
+//  */
+// function deriveType(amount: number): 'income' | 'expense' {
+//   return amount > 0 ? 'income' : 'expense';
 // }
 
 // // ── Bank detector ─────────────────────────────────────────────────────────────
@@ -801,6 +792,15 @@ export class BankStatementParserService {
 //   return null;
 // }
 
+// // ── Whitespace normaliser ──────────────────────────────────────────────────────
+// // pdf-parse sometimes collapses multiple spaces to one. We normalise so regexes
+// // that relied on \s{2,} don't silently match nothing.
+
+// function normaliseSpaces(text: string): string {
+//   // Convert tabs to spaces, collapse 3+ spaces to 2 (keep double-space as column separator hint)
+//   return text.replace(/\t/g, '  ').replace(/ {3,}/g, '  ');
+// }
+
 // // ─────────────────────────────────────────────────────────────────────────────
 // // SWEDBANK
 // // Format: tabular PDF, columns separated by whitespace
@@ -808,12 +808,12 @@ export class BankStatementParserService {
 // // ─────────────────────────────────────────────────────────────────────────────
 
 // function parseSwedbankText(text: string): Omit<ParsedStatement, 'parseMethod'> {
-//   const lines = text
+//   const normalised = normaliseSpaces(text);
+//   const lines = normalised
 //     .split('\n')
 //     .map((l) => l.trim())
 //     .filter(Boolean);
 
-//   // Header fields
 //   let accountHolder = '';
 //   let iban = '';
 //   let periodFrom = '';
@@ -822,17 +822,14 @@ export class BankStatementParserService {
 //   let closingBalance = 0;
 
 //   for (const line of lines) {
-//     // Account holder — appears after "Konto omanik:" or "Account holder:"
 //     const holderMatch = line.match(
 //       /(?:konto omanik|account holder)[:\s]+(.+)/i,
 //     );
 //     if (holderMatch) accountHolder = holderMatch[1].trim();
 
-//     // IBAN
 //     const ibanMatch = line.match(/EE\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}/);
 //     if (ibanMatch && !iban) iban = ibanMatch[0].replace(/\s/g, '');
 
-//     // Period: "01.03.2026 - 31.03.2026" or "Periood: 01.03.2026–31.03.2026"
 //     const periodMatch = line.match(
 //       /(\d{2}[./]\d{2}[./]\d{4})\s*[-–]\s*(\d{2}[./]\d{2}[./]\d{4})/,
 //     );
@@ -841,27 +838,24 @@ export class BankStatementParserService {
 //       periodTo = estDate(periodMatch[2]);
 //     }
 
-//     // Opening balance
 //     const openMatch = line.match(
 //       /(?:algsaldo|opening balance)[^\d-]*([-\d\s,.']+)/i,
 //     );
 //     if (openMatch) openingBalance = parseAmount(openMatch[1]);
 
-//     // Closing balance
 //     const closeMatch = line.match(
 //       /(?:lõppsaldo|closing balance)[^\d-]*([-\d\s,.']+)/i,
 //     );
 //     if (closeMatch) closingBalance = parseAmount(closeMatch[1]);
 //   }
 
-//   // Transaction rows — Swedbank CSV-like lines:
-//   // "01.03.2026  01.03.2026  BOLT FOOD  EE... -12,50 EUR 164,62"
-//   // or simpler: "01.03.2026  DESCRIPTION  -12,50"
 //   const transactions: RawTransaction[] = [];
 
-//   // Pattern 1: full row with two dates
+//   // FIX #4: Accept both single-space and double-space column separators.
+//   // Pattern 1: full row with two dates (value date included)
+//   // "01.03.2026  01.03.2026  BOLT FOOD  EE... -12,50 EUR 164,62"
 //   const txFullRe =
-//     /^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s+([-\d\s]+[,.']\d{2})\s+EUR/gm;
+//     /^(\d{2}\.\d{2}\.\d{4})\s{1,2}(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s]+[,.']\d{2})\s+EUR/gm;
 
 //   // Pattern 2: single date row
 //   const txSimpleRe =
@@ -869,18 +863,17 @@ export class BankStatementParserService {
 
 //   let match: RegExpExecArray | null;
 
-//   while ((match = txFullRe.exec(text)) !== null) {
+//   while ((match = txFullRe.exec(normalised)) !== null) {
 //     const [, dateRaw, valueDateRaw, desc, amtRaw] = match;
 //     const amount = parseAmount(amtRaw);
 //     if (isNaN(amount)) continue;
-
-//     const tx = buildSwedbankTx(dateRaw, valueDateRaw, desc.trim(), amount);
-//     transactions.push(tx);
+//     transactions.push(
+//       buildSwedbankTx(dateRaw, valueDateRaw, desc.trim(), amount),
+//     );
 //   }
 
-//   // Only fall back to simple pattern if full pattern found nothing
 //   if (transactions.length === 0) {
-//     while ((match = txSimpleRe.exec(text)) !== null) {
+//     while ((match = txSimpleRe.exec(normalised)) !== null) {
 //       const [, dateRaw, desc, amtRaw] = match;
 //       const amount = parseAmount(amtRaw);
 //       if (isNaN(amount)) continue;
@@ -889,6 +882,7 @@ export class BankStatementParserService {
 //         description: desc.trim(),
 //         amount,
 //         currency: 'EUR',
+//         type: deriveType(amount), // FIX #3
 //       });
 //     }
 //   }
@@ -912,17 +906,14 @@ export class BankStatementParserService {
 //   desc: string,
 //   amount: number,
 // ): RawTransaction {
-//   // Try to pull out counterparty IBAN from description
 //   const ibanMatch = desc.match(/EE\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}/);
 //   const counterpartyIban = ibanMatch
 //     ? ibanMatch[0].replace(/\s/g, '')
 //     : undefined;
 
-//   // Reference number — typically 7-20 digits at end
 //   const refMatch = desc.match(/(?:viitenr?|ref)[.:\s]+(\d{3,20})/i);
 //   const referenceNumber = refMatch ? refMatch[1] : undefined;
 
-//   // Counterparty name is usually before the IBAN in the description
 //   let counterpartyName: string | undefined;
 //   if (counterpartyIban) {
 //     counterpartyName = desc.split(counterpartyIban)[0].trim() || undefined;
@@ -934,6 +925,7 @@ export class BankStatementParserService {
 //     description: desc,
 //     amount,
 //     currency: 'EUR',
+//     type: deriveType(amount), // FIX #3
 //     counterpartyName,
 //     counterpartyIban,
 //     referenceNumber,
@@ -947,7 +939,8 @@ export class BankStatementParserService {
 // // ─────────────────────────────────────────────────────────────────────────────
 
 // function parseSebText(text: string): Omit<ParsedStatement, 'parseMethod'> {
-//   const lines = text
+//   const normalised = normaliseSpaces(text);
+//   const lines = normalised
 //     .split('\n')
 //     .map((l) => l.trim())
 //     .filter(Boolean);
@@ -987,13 +980,12 @@ export class BankStatementParserService {
 
 //   const transactions: RawTransaction[] = [];
 
-//   // SEB row: "DD.MM.YYYY  description  debit  credit  balance"
-//   // debit and credit are unsigned; we determine sign by which column has value
+//   // FIX #4: relaxed to \s+ instead of \s{2,} for single-space PDFs
 //   const txRe =
 //     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([\d\s,.']+)?\s{2,}([\d\s,.']+)?\s{2,}[\d\s,.']+$/gm;
 
 //   let match: RegExpExecArray | null;
-//   while ((match = txRe.exec(text)) !== null) {
+//   while ((match = txRe.exec(normalised)) !== null) {
 //     const [, dateRaw, desc, debitRaw, creditRaw] = match;
 
 //     let amount: number;
@@ -1018,6 +1010,7 @@ export class BankStatementParserService {
 //       description: desc.trim(),
 //       amount,
 //       currency: 'EUR',
+//       type: deriveType(amount), // FIX #3
 //       counterpartyIban,
 //       referenceNumber: refMatch ? refMatch[1] : undefined,
 //     });
@@ -1043,7 +1036,8 @@ export class BankStatementParserService {
 // // ─────────────────────────────────────────────────────────────────────────────
 
 // function parseLhvText(text: string): Omit<ParsedStatement, 'parseMethod'> {
-//   const lines = text
+//   const normalised = normaliseSpaces(text);
+//   const lines = normalised
 //     .split('\n')
 //     .map((l) => l.trim())
 //     .filter(Boolean);
@@ -1079,17 +1073,16 @@ export class BankStatementParserService {
 
 //   const transactions: RawTransaction[] = [];
 
-//   // LHV rows — date then description then signed amount
-//   // "01.03.2026  Bolt Food OÜ  -8,40"
-//   const txRe = /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([-\d\s,.']+)\s+EUR/gm;
+//   // Primary: signed amount with EUR suffix
+//   const txRe = /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s,.']+)\s+EUR/gm;
 
-//   // Also handle debit/credit split columns like SEB
+//   // Fallback: debit / credit split columns
 //   const txSplitRe =
 //     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([\d\s,.']+)?\s{2,}([\d\s,.']+)?/gm;
 
 //   let match: RegExpExecArray | null;
 
-//   while ((match = txRe.exec(text)) !== null) {
+//   while ((match = txRe.exec(normalised)) !== null) {
 //     const [, dateRaw, desc, amtRaw] = match;
 //     const amount = parseAmount(amtRaw);
 //     if (isNaN(amount)) continue;
@@ -1103,6 +1096,7 @@ export class BankStatementParserService {
 //       description: desc.trim(),
 //       amount,
 //       currency: 'EUR',
+//       type: deriveType(amount), // FIX #3
 //       counterpartyIban: ibanMatch ? ibanMatch[0].replace(/\s/g, '') : undefined,
 //       referenceNumber: refMatch ? refMatch[1] : undefined,
 //       transactionId: archMatch ? archMatch[1] : undefined,
@@ -1110,7 +1104,7 @@ export class BankStatementParserService {
 //   }
 
 //   if (transactions.length === 0) {
-//     while ((match = txSplitRe.exec(text)) !== null) {
+//     while ((match = txSplitRe.exec(normalised)) !== null) {
 //       const [, dateRaw, desc, debitRaw, creditRaw] = match;
 //       let amount: number;
 //       if (debitRaw && debitRaw.trim()) {
@@ -1124,6 +1118,7 @@ export class BankStatementParserService {
 //         description: desc.trim(),
 //         amount,
 //         currency: 'EUR',
+//         type: deriveType(amount), // FIX #3
 //       });
 //     }
 //   }
@@ -1148,7 +1143,8 @@ export class BankStatementParserService {
 // // ─────────────────────────────────────────────────────────────────────────────
 
 // function parseLuminorText(text: string): Omit<ParsedStatement, 'parseMethod'> {
-//   const lines = text
+//   const normalised = normaliseSpaces(text);
+//   const lines = normalised
 //     .split('\n')
 //     .map((l) => l.trim())
 //     .filter(Boolean);
@@ -1186,12 +1182,12 @@ export class BankStatementParserService {
 
 //   const transactions: RawTransaction[] = [];
 
-//   // Luminor: two dates then description then signed amount
+//   // FIX #4: relaxed whitespace between columns
 //   const txRe =
-//     /^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([-\d\s,.']+)\s+EUR/gm;
+//     /^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s,.']+)\s+EUR/gm;
 
 //   let match: RegExpExecArray | null;
-//   while ((match = txRe.exec(text)) !== null) {
+//   while ((match = txRe.exec(normalised)) !== null) {
 //     const [, dateRaw, valueDateRaw, desc, amtRaw] = match;
 //     const amount = parseAmount(amtRaw);
 //     if (isNaN(amount)) continue;
@@ -1205,6 +1201,7 @@ export class BankStatementParserService {
 //       description: desc.trim(),
 //       amount,
 //       currency: 'EUR',
+//       type: deriveType(amount), // FIX #3
 //       counterpartyIban: ibanMatch ? ibanMatch[0].replace(/\s/g, '') : undefined,
 //       referenceNumber: refMatch ? refMatch[1] : undefined,
 //     });
@@ -1229,7 +1226,8 @@ export class BankStatementParserService {
 // // ─────────────────────────────────────────────────────────────────────────────
 
 // function parseCoopText(text: string): Omit<ParsedStatement, 'parseMethod'> {
-//   const lines = text
+//   const normalised = normaliseSpaces(text);
+//   const lines = normalised
 //     .split('\n')
 //     .map((l) => l.trim())
 //     .filter(Boolean);
@@ -1267,11 +1265,12 @@ export class BankStatementParserService {
 
 //   const transactions: RawTransaction[] = [];
 
+//   // FIX #4: relaxed whitespace
 //   const txRe =
-//     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{2,}([-\d\s,.']+)\s*(?:EUR)?$/gm;
+//     /^(\d{2}\.\d{2}\.\d{4})\s+(.+?)\s{1,2}([-\d\s,.']+)\s*(?:EUR)?$/gm;
 
 //   let match: RegExpExecArray | null;
-//   while ((match = txRe.exec(text)) !== null) {
+//   while ((match = txRe.exec(normalised)) !== null) {
 //     const [, dateRaw, desc, amtRaw] = match;
 //     const amount = parseAmount(amtRaw);
 //     if (isNaN(amount)) continue;
@@ -1284,6 +1283,7 @@ export class BankStatementParserService {
 //       description: desc.trim(),
 //       amount,
 //       currency: 'EUR',
+//       type: deriveType(amount), // FIX #3
 //       counterpartyIban: ibanMatch ? ibanMatch[0].replace(/\s/g, '') : undefined,
 //       referenceNumber: refMatch ? refMatch[1] : undefined,
 //     });
@@ -1313,13 +1313,20 @@ export class BankStatementParserService {
 //   /**
 //    * Extract text from PDF base64 string using pdf-parse.
 //    * Returns null if extraction fails (scanned/image PDF).
+//    *
+//    * FIX #1: pdfParse is a plain async function — call it directly, not with `new`.
 //    */
 //   async extractText(pdfBase64: string): Promise<string | null> {
 //     try {
 //       const buffer = Buffer.from(pdfBase64, 'base64');
-//       const parser = new PDFParse({ data: buffer });
-//       const result = await parser.getText();
-//       const text = result.text ?? '';
+
+//       // pdf-parse can throw on some malformed PDFs — wrap defensively
+//       const result = await (pdfParse as any)(buffer);
+//       const text: string = result?.text ?? '';
+
+//       this.logger.debug(
+//         `[Parser] pdf-parse extracted ${text.replace(/\s/g, '').length} non-space chars`,
+//       );
 
 //       // Heuristic: if we got very little text, it's likely a scanned PDF
 //       if (text.replace(/\s/g, '').length < 200) {
@@ -1345,7 +1352,12 @@ export class BankStatementParserService {
 //     pdfBase64: string,
 //     bankHint?: string,
 //     filename = '',
-//   ): Promise<ParsedStatement | null> {
+//   ): Promise<
+//     | (Omit<ParsedStatement, 'parseMethod'> & {
+//         parseMethod: 'rules' | 'ai_fallback';
+//       })
+//     | null
+//   > {
 //     const text = await this.extractText(pdfBase64);
 //     if (!text) return null;
 
@@ -1371,7 +1383,6 @@ export class BankStatementParserService {
 //         result = parseCoopText(text);
 //         break;
 //       default:
-//         // Unknown bank — try Swedbank pattern as most common, then give up
 //         this.logger.warn('[Parser] Unknown bank, attempting generic parse');
 //         result = parseSwedbankText(text);
 //         break;
@@ -1382,14 +1393,22 @@ export class BankStatementParserService {
 //         `[Parser] Rule-based parse found 0 transactions for bank=${bank}. ` +
 //           'Will fall back to AI.',
 //       );
-//       return null; // signal caller to use AI fallback
+//       return null;
 //     }
 
+//     // FIX #3: Ensure every transaction has type set (guard for any missed paths)
+//     const transactions = result.transactions.map((t) => ({
+//       ...t,
+//       type: t.type ?? deriveType(t.amount),
+//     }));
+
 //     this.logger.log(
-//       `[Parser] Extracted ${result.transactions.length} transactions ` +
-//         `from ${result.bankName} statement via rules`,
+//       `[Parser] Extracted ${transactions.length} transactions ` +
+//         `from ${result.bankName} statement via rules ` +
+//         `(income: ${transactions.filter((t) => t.type === 'income').length}, ` +
+//         `expense: ${transactions.filter((t) => t.type === 'expense').length})`,
 //     );
 
-//     return { ...result, parseMethod: 'rules' };
+//     return { ...result, transactions, parseMethod: 'rules' };
 //   }
 // }
