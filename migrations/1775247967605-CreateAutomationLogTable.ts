@@ -8,6 +8,18 @@ import {
 
 export class CreateAutomationLogTable1775247967605 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // set_updated_at() already created by CreateSupplier (runs before this)
+    // Using CREATE OR REPLACE as a safety net
+    await queryRunner.query(`
+      CREATE OR REPLACE FUNCTION set_updated_at()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+
     await queryRunner.createTable(
       new Table({
         name: 'automation_logs',
@@ -76,7 +88,6 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
     `);
 
-    // Indexes
     await queryRunner.createIndex(
       'automation_logs',
       new TableIndex({
@@ -84,6 +95,7 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
         columnNames: ['org_id', 'source_type'],
       }),
     );
+
     await queryRunner.createIndex(
       'automation_logs',
       new TableIndex({
@@ -91,6 +103,7 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
         columnNames: ['org_id', 'status'],
       }),
     );
+
     await queryRunner.createIndex(
       'automation_logs',
       new TableIndex({
@@ -98,6 +111,7 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
         columnNames: ['external_ref'],
       }),
     );
+
     await queryRunner.createIndex(
       'automation_logs',
       new TableIndex({
@@ -105,6 +119,7 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
         columnNames: ['entry_id'],
       }),
     );
+
     await queryRunner.createIndex(
       'automation_logs',
       new TableIndex({
@@ -112,6 +127,7 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
         columnNames: ['supplier_id'],
       }),
     );
+
     await queryRunner.createIndex(
       'automation_logs',
       new TableIndex({
@@ -119,6 +135,7 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
         columnNames: ['created_at'],
       }),
     );
+
     await queryRunner.createIndex(
       'automation_logs',
       new TableIndex({
@@ -127,14 +144,12 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
       }),
     );
 
-    // Partial index for confirmed-but-not-flushed entries
     await queryRunner.query(`
       CREATE INDEX "idx_automation_logs_pending_flush"
       ON "automation_logs" ("status", "entry_id")
       WHERE status = 'confirmed' AND entry_id IS NULL
     `);
 
-    // FKs
     await queryRunner.createForeignKey(
       'automation_logs',
       new TableForeignKey({
@@ -160,19 +175,17 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
       );
     }
 
-    const hasSuppliers = await queryRunner.hasTable('suppliers');
-    if (hasSuppliers) {
-      await queryRunner.createForeignKey(
-        'automation_logs',
-        new TableForeignKey({
-          name: 'fk_automation_logs_supplier_id',
-          columnNames: ['supplier_id'],
-          referencedTableName: 'suppliers',
-          referencedColumnNames: ['id'],
-          onDelete: 'SET NULL',
-        }),
-      );
-    }
+    // suppliers table exists — created by migration that ran before this one
+    await queryRunner.createForeignKey(
+      'automation_logs',
+      new TableForeignKey({
+        name: 'fk_automation_logs_supplier_id',
+        columnNames: ['supplier_id'],
+        referencedTableName: 'suppliers',
+        referencedColumnNames: ['id'],
+        onDelete: 'SET NULL',
+      }),
+    );
 
     const hasUsers = await queryRunner.hasTable('users');
     if (hasUsers) {
@@ -193,27 +206,39 @@ export class CreateAutomationLogTable1775247967605 implements MigrationInterface
     await queryRunner.query(
       `DROP TRIGGER IF EXISTS trg_automation_logs_updated_at ON automation_logs`,
     );
+
     const table = await queryRunner.getTable('automation_logs');
     if (table) {
       for (const fk of table.foreignKeys) {
         await queryRunner.dropForeignKey('automation_logs', fk.name!);
       }
     }
+
     await queryRunner.query(
       `DROP INDEX IF EXISTS "idx_automation_logs_pending_flush"`,
     );
-    const indexes = [
-      'idx_automation_logs_status_created',
-      'idx_automation_logs_created_at',
-      'idx_automation_logs_supplier_id',
-      'idx_automation_logs_entry_id',
-      'idx_automation_logs_external_ref',
-      'idx_automation_logs_org_id_status',
-      'idx_automation_logs_org_id_source_type',
-    ];
-    for (const idx of indexes) {
-      await queryRunner.dropIndex('automation_logs', idx).catch(() => {});
-    }
+    await queryRunner
+      .dropIndex('automation_logs', 'idx_automation_logs_status_created')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('automation_logs', 'idx_automation_logs_created_at')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('automation_logs', 'idx_automation_logs_supplier_id')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('automation_logs', 'idx_automation_logs_entry_id')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('automation_logs', 'idx_automation_logs_external_ref')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('automation_logs', 'idx_automation_logs_org_id_status')
+      .catch(() => {});
+    await queryRunner
+      .dropIndex('automation_logs', 'idx_automation_logs_org_id_source_type')
+      .catch(() => {});
+
     await queryRunner.dropTable('automation_logs');
   }
 }

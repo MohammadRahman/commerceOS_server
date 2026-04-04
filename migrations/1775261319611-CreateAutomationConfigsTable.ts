@@ -2,12 +2,23 @@ import {
   MigrationInterface,
   QueryRunner,
   Table,
-  TableForeignKey,
   TableIndex,
+  TableForeignKey,
 } from 'typeorm';
 
 export class CreateAutomationConfigsTable1775261319611 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // set_updated_at() already exists from CreateSupplier — CREATE OR REPLACE is safe
+    await queryRunner.query(`
+      CREATE OR REPLACE FUNCTION set_updated_at()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+
     await queryRunner.createTable(
       new Table({
         name: 'automation_configs',
@@ -98,13 +109,6 @@ export class CreateAutomationConfigsTable1775261319611 implements MigrationInter
     );
 
     await queryRunner.query(`
-      CREATE OR REPLACE FUNCTION set_updated_at()
-      RETURNS TRIGGER AS $$
-      BEGIN NEW.updated_at = CURRENT_TIMESTAMP; RETURN NEW; END;
-      $$ LANGUAGE plpgsql;
-    `);
-
-    await queryRunner.query(`
       CREATE TRIGGER trg_automation_configs_updated_at
       BEFORE UPDATE ON automation_configs
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -135,17 +139,19 @@ export class CreateAutomationConfigsTable1775261319611 implements MigrationInter
     await queryRunner.query(
       `DROP TRIGGER IF EXISTS trg_automation_configs_updated_at ON automation_configs`,
     );
+
     const table = await queryRunner.getTable('automation_configs');
     if (table) {
       for (const fk of table.foreignKeys) {
         await queryRunner.dropForeignKey('automation_configs', fk.name!);
       }
     }
-    await queryRunner.dropIndex(
-      'automation_configs',
-      'idx_automation_configs_org_id',
-    );
+
+    await queryRunner
+      .dropIndex('automation_configs', 'idx_automation_configs_org_id')
+      .catch(() => {});
     await queryRunner.dropTable('automation_configs');
+
     await queryRunner.query(
       `DROP TYPE IF EXISTS "automation_configs_email_provider_enum"`,
     );
