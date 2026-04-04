@@ -8,9 +8,11 @@ import { AiController } from './ai.controller';
 import { ChannelEntity } from '../inbox/entities/channel.entity';
 import { OrderEntity } from '../orders/entities/order.entity';
 import { ProductEntity } from '../storefront/entities/product.entity';
+import { BookkeepingModule } from '../bookkeeping/bookkeeping.module';
 
 @Module({
   imports: [
+    BookkeepingModule,
     ConfigModule,
     HttpModule,
     DatabaseModule.forFeature([ChannelEntity, OrderEntity, ProductEntity]),
