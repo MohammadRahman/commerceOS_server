@@ -29,6 +29,7 @@ import { HttpModule } from '@nestjs/axios';
 import { Supplier } from './entities/supplier.entity';
 import { AutomationConfig } from './entities/automation-config.entity';
 import { AutomationLog } from './entities/automation-log.entity';
+import { BankStatementUpload } from './entities/bank-statement-upload.entity';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { AutomationLog } from './entities/automation-log.entity';
       AutomationLog,
       AutomationConfig,
       Supplier,
+      BankStatementUpload,
     ]),
     BullModule.registerQueue(
       { name: ESTONIA_TAX_QUEUE_NAMES.VAT_FILING },
