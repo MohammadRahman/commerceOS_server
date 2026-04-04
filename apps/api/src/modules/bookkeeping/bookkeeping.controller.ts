@@ -51,7 +51,7 @@ import {
 import { UploadService } from '@app/common/upload/upload.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 
-@Controller('bookkeeping')
+@Controller('v1/bookkeeping')
 @UseGuards(JwtAuthGuard, RbacGuard)
 export class BookkeepingController {
   constructor(

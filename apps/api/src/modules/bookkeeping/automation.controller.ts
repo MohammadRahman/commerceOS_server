@@ -31,7 +31,7 @@ import { UpdateAutomationConfigDto } from './dto/automation.dto';
 import { OrgId, RequirePerm, UserId } from '@app/common';
 
 @UseGuards(JwtAuthGuard, RbacGuard)
-@Controller('bookkeeping/automation')
+@Controller('v1/bookkeeping/automation')
 export class AutomationController {
   constructor(
     private readonly inboxParser: InboxParserService,
