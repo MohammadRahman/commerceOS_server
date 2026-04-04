@@ -1,6 +1,6 @@
 // apps/api/src/modules/bookkeeping/bookkeeping.module.ts
 
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -33,7 +33,7 @@ import { AutomationLog } from './entities/automation-log.entity';
 @Module({
   imports: [
     HttpModule,
-    AiModule, // AiModule exports AiService + re-exports BankStatementParserModule
+    forwardRef(() => AiModule), // AiModule exports AiService + re-exports BankStatementParserModule
     UploadModule,
     TypeOrmModule.forFeature([
       BookkeepingEntry,
