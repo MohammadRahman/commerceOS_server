@@ -187,10 +187,26 @@ export class AiService {
       const content: any[] = [];
 
       if (imageBase64 && imageMime) {
-        content.push({
-          type: 'image',
-          source: { type: 'base64', media_type: imageMime, data: imageBase64 },
-        });
+        if (imageMime === 'application/pdf') {
+          // PDFs must use a document block, not an image block
+          content.push({
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: imageBase64,
+            },
+          });
+        } else {
+          content.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: imageMime,
+              data: imageBase64,
+            },
+          });
+        }
       } else if (imageUrl) {
         content.push({ type: 'image', source: { type: 'url', url: imageUrl } });
       }
