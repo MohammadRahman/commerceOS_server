@@ -8,10 +8,11 @@ import {
 
 export class CreateSupplier1775247900000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Define shared trigger function first — runs before automation logs and configs
+    // Define shared trigger function first — runs sdf before automation logs and configs
     await queryRunner.query(`
       CREATE OR REPLACE FUNCTION set_updated_at()
       RETURNS TRIGGER AS $$
+
       BEGIN
         NEW.updated_at = CURRENT_TIMESTAMP;
         RETURN NEW;

@@ -8,7 +8,7 @@ import {
 
 export class CreateAutomationConfigsTable1775261319611 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // set_updated_at() already exists from CreateSupplier — CREATE OR REPLACE is safe
+    // set_updated_at() already exists from CreateSu dsapplier — CREATE OR REPLACE is safe
     await queryRunner.query(`
       CREATE OR REPLACE FUNCTION set_updated_at()
       RETURNS TRIGGER AS $$

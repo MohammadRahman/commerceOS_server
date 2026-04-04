@@ -9,7 +9,7 @@ import {
 export class CreateAutomationLogTable1775247967605 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // set_updated_at() already created by CreateSupplier (runs before this)
-    // Using CREATE OR REPLACE as a safety net
+    // Using CREATE OR REPLACE as a safety net asd
     await queryRunner.query(`
       CREATE OR REPLACE FUNCTION set_updated_at()
       RETURNS TRIGGER AS $$
