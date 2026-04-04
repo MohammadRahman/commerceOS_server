@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   BadRequestException,
   ParseUUIDPipe,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -261,6 +262,34 @@ export class AutomationController {
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
+  // GET /bookkeeping/automation/bank-statement/history?limit=25&offset=0
+  // Returns paginated BankStatementUpload rows — the primary table data source.
+  @Get('bank-statement/history')
+  @RequirePerm('bookkeeping:read')
+  async getBankStatementHistory(
+    @OrgId() orgId: string,
+    @Query('limit') limit = '25',
+    @Query('offset') offset = '0',
+  ) {
+    return this.bankStatement.getUploadHistory(
+      orgId,
+      Math.min(Math.max(parseInt(limit) || 25, 1), 200),
+      Math.max(parseInt(offset) || 0, 0),
+    );
+  }
+
+  // GET /bookkeeping/automation/bank-statement/history/:id/entries
+  // Returns BookkeepingEntry[] for the drill-down panel of a single upload.
+  @Get('bank-statement/history/:id/entries')
+  @RequirePerm('bookkeeping:read')
+  async getBankStatementEntries(
+    @OrgId() orgId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const upload = await this.bankStatement.getUploadById(orgId, id);
+    if (!upload) throw new NotFoundException('Upload not found');
+    return this.bankStatement.getUploadEntries(orgId, upload.fileHash);
+  }
 
   @Get('stats')
   @RequirePerm('bookkeeping:read')
@@ -279,20 +308,6 @@ export class AutomationController {
       total,
       supplierCount: suppliers.length,
     };
-  }
-
-  @Get('bank-statement/history')
-  @RequirePerm('bookkeeping:read')
-  async getBankStatementHistory(
-    @OrgId() orgId: string,
-    @Query('limit') limit = '50',
-    @Query('offset') offset = '0',
-  ) {
-    return this.bankStatement.getUploadHistory(
-      orgId,
-      Math.min(parseInt(limit) || 50, 200),
-      parseInt(offset) || 0,
-    );
   }
 
   // ── Suppliers ──────────────────────────────────────────────────────────────

@@ -829,6 +829,39 @@ export class BankStatementService {
       },
     };
   }
+
+  /**
+   * Return all BookkeepingEntry rows linked to a specific upload session,
+   * identified by the SHA-256 fileHash stored in AutomationLog.rawPayload.
+   *
+   * Uses a single JOIN query rather than two round-trips:
+   *   AutomationLog.rawPayload->>'fileHash' = :fileHash
+   *   AutomationLog.entryId  → BookkeepingEntry.id
+   *
+   * Ordered by entry date ASC so the drill-down table matches statement order.
+   */
+  async getUploadEntries(
+    orgId: string,
+    fileHash: string,
+  ): Promise<BookkeepingEntry[]> {
+    // TypeORM raw query — cleanest way to filter on a JSONB field without
+    // adding a generated column or a separate index for this lookup.
+    return this.entryRepo.query(
+      `
+      SELECT e.*
+      FROM bookkeeping_entries e
+      INNER JOIN automation_logs l
+        ON l.entry_id   = e.id
+       AND l.org_id     = $1
+       AND l.source_type = 'bank_statement_pdf'
+       AND l.raw_payload->>'fileHash' = $2
+      WHERE e.org_id = $1
+        AND e.deleted_at IS NULL
+      ORDER BY e.date ASC, e.created_at ASC
+      `,
+      [orgId, fileHash],
+    );
+  }
 }
 // this file is a bit rough around the edges and has some FIX comments,
 // but it's a critical piece of functionality so I'm leaving it in for
