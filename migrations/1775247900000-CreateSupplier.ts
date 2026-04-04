@@ -6,11 +6,12 @@ import {
   TableForeignKey,
 } from 'typeorm';
 
-export class CreateSupplier1775248124531 implements MigrationInterface {
+export class CreateSupplier1775247900000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Enum type for supplier source
+    // TypeORM generates this enum name automatically from entity + column name.
+    // Defining it explicitly here so it matches and gives us control in down().
     await queryRunner.query(`
-      CREATE TYPE suppliers_source_enum AS ENUM (
+      CREATE TYPE "suppliers_source_enum" AS ENUM (
         'manual',
         'email_parser',
         'bank_statement',
@@ -71,13 +72,10 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
             isNullable: true,
           },
           {
-            // FIX: entity uses `type: 'jsonb'` with `default: '[]'` so aliases
-            // are stored as a proper JSON array, not a comma-separated string.
-            // The old `type: 'text'` would have silently corrupted any alias
-            // containing a comma.
             name: 'aliases',
             type: 'jsonb',
             isNullable: true,
+            // FIX: plain '[]' — no extra quotes needed for jsonb default
             default: "'[]'",
             comment: 'JSON array of alias keywords for fuzzy supplier matching',
           },
@@ -89,6 +87,7 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
           },
           {
             name: 'source',
+            // Use the enum type we created above
             type: 'suppliers_source_enum',
             default: "'manual'",
             isNullable: false,
@@ -106,8 +105,6 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
             isNullable: false,
           },
           {
-            // FIX: `onUpdate: 'CURRENT_TIMESTAMP'` is MySQL syntax.
-            // Postgres does not support it — we use a trigger instead (below).
             name: 'updated_at',
             type: 'timestamp with time zone',
             default: 'CURRENT_TIMESTAMP',
@@ -118,9 +115,9 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
       true,
     );
 
-    // FIX: Postgres auto-update for updated_at requires a trigger function.
-    // We reuse the shared moddatetime / set_updated_at function if it exists,
-    // otherwise create a minimal inline version.
+    // set_updated_at() is created by CreateAutomationConfigsTable1775247337393
+    // which runs before this migration. Using CREATE OR REPLACE is safe
+    // regardless of order changes in future.
     await queryRunner.query(`
       CREATE OR REPLACE FUNCTION set_updated_at()
       RETURNS TRIGGER AS $$
@@ -137,8 +134,9 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
     `);
 
-    // ── Indexes ──────────────────────────────────────────────────────────────
+    // ── Indexes ───────────────────────────────────────────────────────────────
 
+    // Composite index for org + email lookups (matches @Index on entity)
     await queryRunner.createIndex(
       'suppliers',
       new TableIndex({
@@ -147,7 +145,7 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
       }),
     );
 
-    // Partial unique index — org + reg number must be unique when present
+    // Partial unique index — org + reg number unique only when reg number present
     await queryRunner.createIndex(
       'suppliers',
       new TableIndex({
@@ -190,26 +188,27 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
       }),
     );
 
-    // GIN index on aliases jsonb for fast @> containment queries
+    // GIN index on aliases jsonb for @> containment queries
     await queryRunner.query(`
-      CREATE INDEX idx_suppliers_aliases_gin ON suppliers USING gin (aliases);
+      CREATE INDEX "idx_suppliers_aliases_gin" ON suppliers USING gin (aliases);
     `);
 
-    // Trigram index on name for fuzzy search (requires pg_trgm)
+    // Trigram index on name for fuzzy search — soft-fail if pg_trgm unavailable
     await queryRunner
       .query(
         `
         CREATE EXTENSION IF NOT EXISTS pg_trgm;
-        CREATE INDEX idx_suppliers_name_trgm ON suppliers USING gin (name gin_trgm_ops);
+        CREATE INDEX "idx_suppliers_name_trgm" ON suppliers USING gin (name gin_trgm_ops);
       `,
       )
       .catch(() => {
-        console.log(
-          'Note: pg_trgm extension not available, skipping trigram index',
+        console.warn(
+          'pg_trgm not available — skipping trigram index on suppliers.name',
         );
       });
 
-    // Foreign key → organizations
+    // ── Foreign keys ──────────────────────────────────────────────────────────
+
     await queryRunner.createForeignKey(
       'suppliers',
       new TableForeignKey({
@@ -220,18 +219,52 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
         onDelete: 'CASCADE',
       }),
     );
+
+    // Back-fill FK from automation_logs → suppliers if that table already exists.
+    // (automation_logs is created by CreateAutomationLogTable1775247967605 which
+    //  runs after this migration, so this block is a safety net for re-runs only.)
+    const hasAutomationLogs = await queryRunner.hasTable('automation_logs');
+    if (hasAutomationLogs) {
+      const logsTable = await queryRunner.getTable('automation_logs');
+      const fkExists = logsTable?.foreignKeys.some(
+        (fk) => fk.name === 'fk_automation_logs_supplier_id',
+      );
+      if (!fkExists) {
+        await queryRunner.createForeignKey(
+          'automation_logs',
+          new TableForeignKey({
+            name: 'fk_automation_logs_supplier_id',
+            columnNames: ['supplier_id'],
+            referencedTableName: 'suppliers',
+            referencedColumnNames: ['id'],
+            onDelete: 'SET NULL',
+          }),
+        );
+      }
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // Drop trigger and function
+    // Remove back-filled FK on automation_logs first (if it was added here)
+    const logsTable = await queryRunner.getTable('automation_logs');
+    if (logsTable) {
+      const fk = logsTable.foreignKeys.find(
+        (fk) => fk.name === 'fk_automation_logs_supplier_id',
+      );
+      if (fk) {
+        await queryRunner.dropForeignKey(
+          'automation_logs',
+          'fk_automation_logs_supplier_id',
+        );
+      }
+    }
+
+    // Drop trigger (function is shared — leave it in place)
     await queryRunner.query(
       `DROP TRIGGER IF EXISTS trg_suppliers_updated_at ON suppliers`,
     );
-    // Only drop the function if no other tables use it
-    // (comment this out if set_updated_at is shared across migrations)
-    await queryRunner.query(`DROP FUNCTION IF EXISTS set_updated_at()`);
 
-    // Drop foreign keys
+    // Drop FKs on suppliers
     const table = await queryRunner.getTable('suppliers');
     if (table) {
       for (const fk of table.foreignKeys) {
@@ -266,6 +299,6 @@ export class CreateSupplier1775248124531 implements MigrationInterface {
       .catch(() => {});
 
     await queryRunner.dropTable('suppliers');
-    await queryRunner.query(`DROP TYPE IF EXISTS suppliers_source_enum`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "suppliers_source_enum"`);
   }
 }

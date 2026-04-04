@@ -71,11 +71,11 @@ export class AutomationLog extends AbstractEntity<AutomationLog> {
   parsedData: AutomationParsedData | null;
 
   /** bookkeeping_entry id once confirmed */
-  @Column({ name: 'entry_id', nullable: true })
+  @Column({ name: 'entry_id', nullable: true, type: 'uuid' })
   entryId: string;
 
   /** supplier id resolved / created */
-  @Column({ name: 'supplier_id', nullable: true })
+  @Column({ name: 'supplier_id', nullable: true, type: 'uuid' })
   supplierId: string;
 
   /** Human-readable error if status=error */
@@ -98,10 +98,10 @@ export class AutomationLog extends AbstractEntity<AutomationLog> {
   // intentionally — the user may be deleted but we want to keep the audit
   // trail. If strict referential integrity is needed, add a FK with
   // onDelete: 'SET NULL'.
-  @Column({ name: 'reviewed_by', nullable: true })
+  @Column({ name: 'reviewed_by', nullable: true, type: 'uuid' })
   reviewedBy: string | null;
 
-  @Column({ name: 'reviewed_at', nullable: true })
+  @Column({ name: 'reviewed_at', nullable: true, type: 'timestamp' })
   reviewedAt: Date | null;
 }
 // apps/api/src/modules/bookkeeping/entities/automation-log.entity.ts
