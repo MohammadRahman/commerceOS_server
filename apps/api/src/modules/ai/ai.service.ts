@@ -243,19 +243,56 @@ export class AiService {
 
   // ── JSON parser ─────────────────────────────────────────────────────────────
 
+  // private parseJSON<T>(text: string, fallback: T): T {
+  //   try {
+  //     const clean = text.replace(/```json|```/g, '').trim();
+  //     const start = clean.indexOf('{');
+  //     const end = clean.lastIndexOf('}');
+  //     if (start === -1 || end === -1) return fallback;
+  //     return JSON.parse(clean.slice(start, end + 1)) as T;
+  //   } catch {
+  //     this.logger.warn('[AI] JSON parse failed');
+  //     return fallback;
+  //   }
+  // }
+
   private parseJSON<T>(text: string, fallback: T): T {
     try {
-      const clean = text.replace(/```json|```/g, '').trim();
-      const start = clean.indexOf('{');
-      const end = clean.lastIndexOf('}');
-      if (start === -1 || end === -1) return fallback;
-      return JSON.parse(clean.slice(start, end + 1)) as T;
+      // Strip markdown fences
+      const clean = text
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/g, '')
+        .trim();
+
+      // Try parsing the whole thing first
+      try {
+        return JSON.parse(clean) as T;
+      } catch (error) {
+        this.logger.debug(
+          `[AI] Full JSON parse failed, trying to extract object/array — error: ${(error as Error).message}`,
+        );
+      }
+
+      // Try extracting object
+      const objStart = clean.indexOf('{');
+      const objEnd = clean.lastIndexOf('}');
+      if (objStart !== -1 && objEnd !== -1) {
+        return JSON.parse(clean.slice(objStart, objEnd + 1)) as T;
+      }
+
+      // Try extracting array
+      const arrStart = clean.indexOf('[');
+      const arrEnd = clean.lastIndexOf(']');
+      if (arrStart !== -1 && arrEnd !== -1) {
+        return JSON.parse(clean.slice(arrStart, arrEnd + 1)) as T;
+      }
+
+      return fallback;
     } catch {
-      this.logger.warn('[AI] JSON parse failed');
+      this.logger.warn(`[AI] JSON parse failed — raw: ${text.slice(0, 300)}`);
       return fallback;
     }
   }
-
   // ── Product from image ──────────────────────────────────────────────────────
 
   async generateProductFromImage(
@@ -784,6 +821,11 @@ If the document is not an invoice, return { "confidence": 0 }.`;
   ): Promise<BankStatementParsedData> {
     const prompt = `You are an expert bank statement parser for Estonian banks.
 ${bankHint ? `This is a ${bankHint.toUpperCase()} bank statement.` : ''}
+
+CRITICAL: Respond with RAW JSON only. No markdown. No code fences. No explanation. 
+Your entire response must start with { and end with }.
+If you cannot read the document, still return the JSON structure with an empty transactions array and confidence 0.
+
 Parse ALL transactions from this bank statement.
  
 RULES:
@@ -827,6 +869,7 @@ Return ONLY valid JSON:
       this.MODEL,
       4000,
     );
+    this.logger.debug(`[BankStatement] Raw AI response: ${raw.slice(0, 500)}`);
     return this.parseBankStatementData(raw);
   }
 
