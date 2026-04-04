@@ -281,6 +281,20 @@ export class AutomationController {
     };
   }
 
+  @Get('bank-statement/history')
+  @RequirePerm('bookkeeping:read')
+  async getBankStatementHistory(
+    @OrgId() orgId: string,
+    @Query('limit') limit = '50',
+    @Query('offset') offset = '0',
+  ) {
+    return this.bankStatement.getUploadHistory(
+      orgId,
+      Math.min(parseInt(limit) || 50, 200),
+      parseInt(offset) || 0,
+    );
+  }
+
   // ── Suppliers ──────────────────────────────────────────────────────────────
 
   @Get('suppliers')
