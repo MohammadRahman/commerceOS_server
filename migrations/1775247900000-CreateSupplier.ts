@@ -21,13 +21,16 @@ export class CreateSupplier1775247900000 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-      CREATE TYPE "suppliers_source_enum" AS ENUM (
-        'manual',
-        'email_parser',
-        'bank_statement',
-        'open_banking'
-      )
-    `);
+  DO $$ BEGIN
+    CREATE TYPE "suppliers_source_enum" AS ENUM (
+      'manual',
+      'email_parser',
+      'bank_statement',
+      'open_banking'
+    );
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END $$;
+`);
 
     await queryRunner.createTable(
       new Table({
