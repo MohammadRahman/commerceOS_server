@@ -225,12 +225,22 @@ export class OnboardingController {
         );
       }
 
-      // 5. Mark onboarded
-      await queryRunner.manager.update(
+      // 5. Mark onboarded + start trial clock
+      // trial_started_at was null — set it now so the 7-day trial begins
+      // when onboarding completes, not at registration.
+      // Only set if not already running (safe for re-submission).
+      const orgForTrial = await queryRunner.manager.findOne(
         OrganizationEntity,
-        { id: ctx.orgId },
-        { isOnboarded: true },
+        {
+          where: { id: ctx.orgId } as any,
+        },
       );
+      await queryRunner.manager.update(OrganizationEntity, { id: ctx.orgId }, {
+        isOnboarded: true,
+        ...(orgForTrial?.trialStartedAt == null
+          ? { trialStartedAt: new Date() }
+          : {}),
+      } as any);
 
       await queryRunner.commitTransaction();
       return { ok: true, orgId: ctx.orgId };
